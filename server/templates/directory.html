@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Index of {{.Path}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 500;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .breadcrumb {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .breadcrumb a {
+            color: #3498db;
+            text-decoration: none;
+            padding: 2px 5px;
+            border-radius: 3px;
+            transition: background-color 0.2s;
+        }
+
+        .breadcrumb a:hover {
+            background-color: #e8f4fd;
+        }
+
+        .file-list {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid #eee;
+            text-decoration: none;
+            color: inherit;
+            transition: background-color 0.2s;
+        }
+
+        .file-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .file-name {
+            flex-grow: 1;
+            font-size: 14px;
+            color: #2c3e50;
+        }
+
+        .file-size {
+            font-size: 13px;
+            color: #666;
+            margin-right: 20px;
+        }
+
+        .file-modified {
+            font-size: 13px;
+            color: #999;
+            text-align: right;
+            min-width: 150px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .server-info {
+            text-align: center;
+            margin-top: 40px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .server-info a {
+            color: #3498db;
+            text-decoration: none;
+        }
+
+        /* Icons */
+        .icon-folder {
+            fill: #f39c12;
+        }
+
+        .icon-file {
+            fill: #7f8c8d;
+        }
+
+        .icon-code {
+            fill: #e74c3c;
+        }
+
+        .icon-image {
+            fill: #3498db;
+        }
+
+        .icon-audio {
+            fill: #9b59b6;
+        }
+
+        .icon-video {
+            fill: #e67e22;
+        }
+
+        .icon-archive {
+            fill: #34495e;
+        }
+
+        .icon-text {
+            fill: #27ae60;
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header {
+                padding: 15px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+
+            .file-size {
+                display: none;
+            }
+
+            .file-modified {
+                min-width: auto;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <svg class="file-icon icon-folder" viewBox="0 0 24 24">
+                    <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/>
+                </svg>
+                Index of {{.Path}}
+            </h1>
+            <div class="breadcrumb">
+                {{range $i, $crumb := .Breadcrumbs}}
+                    {{if $i}} / {{end}}
+                    {{if .IsLast}}
+                        <span>{{.Name}}</span>
+                    {{else}}
+                        <a href="{{.Path}}">{{.Name}}</a>
+                    {{end}}
+                {{end}}
+            </div>
+        </div>
+
+        <div class="file-list">
+            {{if .ParentPath}}
+            <a href="{{.ParentPath}}" class="file-item">
+                <svg class="file-icon icon-folder" viewBox="0 0 24 24">
+                    <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/>
+                </svg>
+                <span class="file-name">..</span>
+                <span class="file-size"></span>
+                <span class="file-modified"></span>
+            </a>
+            {{end}}
+
+            {{if .Files}}
+                {{range .Files}}
+                <a href="{{.Path}}" class="file-item">
+                    {{if .IsDir}}
+                    <svg class="file-icon icon-folder" viewBox="0 0 24 24">
+                        <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    {{else if .IsCode}}
+                    <svg class="file-icon icon-code" viewBox="0 0 24 24">
+                        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+                    </svg>
+                    {{else if .IsImage}}
+                    <svg class="file-icon icon-image" viewBox="0 0 24 24">
+                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                    {{else if .IsAudio}}
+                    <svg class="file-icon icon-audio" viewBox="0 0 24 24">
+                        <path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/>
+                    </svg>
+                    {{else if .IsVideo}}
+                    <svg class="file-icon icon-video" viewBox="0 0 24 24">
+                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                    </svg>
+                    {{else if .IsArchive}}
+                    <svg class="file-icon icon-archive" viewBox="0 0 24 24">
+                        <path d="M19 8h-1V3H6v5H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zM8 5h8v3H8V5zm8 14H8v-4h8v4zm2-4v-2H6v2H4v-4c0-.55.45-1 1-1h14c.55 0 1 .45 1 1v4h-2z"/>
+                    </svg>
+                    {{else if .IsText}}
+                    <svg class="file-icon icon-text" viewBox="0 0 24 24">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    {{else}}
+                    <svg class="file-icon icon-file" viewBox="0 0 24 24">
+                        <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"/>
+                    </svg>
+                    {{end}}
+                    <span class="file-name">{{.Name}}</span>
+                    <span class="file-size">{{if not .IsDir}}{{.Size}}{{end}}</span>
+                    <span class="file-modified">{{.Modified}}</span>
+                </a>
+                {{end}}
+            {{else}}
+                <div class="empty-state">
+                    <p>This directory is empty</p>
+                </div>
+            {{end}}
+        </div>
+
+        <div class="server-info">
+            Served by <a href="https://github.com/sakiib/le" target="_blank">le</a>
+        </div>
+    </div>
+</body>
+</html>

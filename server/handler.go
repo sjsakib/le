@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"go.sakib.dev/le/pkg/utils"
 	"go.sakib.dev/le/pkg/nanoid"
+	"go.sakib.dev/le/pkg/utils"
 )
 
 type fileHandler struct {
@@ -27,8 +28,6 @@ func newHandler(dir string) http.Handler {
 }
 
 func (h fileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := filepath.Join(string(h.root), r.URL.Path)
-
 	connID := nanoid.New()
 	clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 
@@ -40,7 +39,61 @@ func (h fileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := os.Stat(path)
+	// get root path
+	absRoot, err := filepath.Abs(string(h.root))
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Printf("[500] %s | %s - error resolving root path: %v", connID, clientIP, err)
+		return
+	}
+
+	// because macOS is a special snowflake
+	absRoot, err = filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Printf("[500] %s | %s - error resolving root symlinks: %v", connID, clientIP, err)
+		return
+	}
+
+	requestedPath := filepath.Join(string(h.root), r.URL.Path)
+
+	// absolute path of the requested file
+	absPath, err := filepath.Abs(requestedPath)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Printf("[500] %s | %s - error resolving file path: %v", connID, clientIP, err)
+		return
+	}
+
+	absPath, err = filepath.EvalSymlinks(absPath)
+	if err != nil && !os.IsNotExist(err) {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Printf("[500] %s | %s - error evaluating symlinks: %v", connID, clientIP, err)
+		return
+	}
+
+	// clean and compare
+	absRoot = filepath.Clean(absRoot)
+	if err == nil {
+		absPath = filepath.Clean(absPath)
+	}
+
+	if err != nil && os.IsNotExist(err) {
+		parentPath := filepath.Dir(absPath)
+		evalParent, err := filepath.EvalSymlinks(parentPath)
+		if err == nil {
+			absPath = filepath.Join(evalParent, filepath.Base(absPath))
+		}
+	}
+
+	// prevent prefix matching for path traversal
+	if !strings.HasPrefix(absPath, absRoot+string(filepath.Separator)) && absPath != absRoot {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		log.Printf("[403] %s | %s - path traversal attempt: %s", connID, clientIP, r.URL.Path)
+		return
+	}
+
+	info, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -53,12 +106,21 @@ func (h fileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if info.IsDir() {
-		log.Printf("Using default file server for %s | %s - %s", connID, clientIP, r.URL.Path)
-		h.defaultServer.ServeHTTP(w, r)
+		// check if request is coming from a browser
+		acceptHeader := r.Header.Get("Accept")
+		isBrowser := strings.Contains(acceptHeader, "text/html")
+
+		if isBrowser {
+			log.Printf("[200] %s | %s - serving directory listing for %s", connID, clientIP, r.URL.Path)
+			h.serveDirectory(w, r, absPath)
+		} else {
+			log.Printf("Using default file server for %s | %s - %s", connID, clientIP, r.URL.Path)
+			h.defaultServer.ServeHTTP(w, r)
+		}
 		return
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(absPath)
 	if err != nil {
 		http.Error(w, "Internal Server Error", 500)
 		log.Printf("[500] %s | %s - error opening %s: %v", connID, clientIP, r.URL.Path, err)
@@ -103,7 +165,7 @@ func (h fileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
 	w.Header().Set("ETag", fmt.Sprintf(`"%x-%x"`, info.ModTime().Unix(), info.Size()))
 
-	fileName := filepath.Base(path)
+	fileName := filepath.Base(absPath)
 	var totalSent int64 = 0
 	var totalMBSent float64
 	buf := make([]byte, 1024*1024) // 1MB buffer
