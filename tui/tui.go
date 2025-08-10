@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -64,6 +65,23 @@ func (m model) View() string {
 	str += fmt.Sprintf("From directory %s\n", state.Dir)
 
 	str += stringWriter.String()
+
+	str += "\n"
+
+	for _, d := range state.Downloads {
+		str += fmt.Sprintf("%s\n", d.FileDisplayPath)
+
+		if d.Chunks == nil {
+			slog.Warn("No chunks found for download", "download_id", d.ID)
+		}
+
+		for _, c := range d.Chunks {
+			slog.Debug("Chunk info", "chunk", c)
+			slog.Debug("Sent from tui", "sent", c.Sent)
+			str += fmt.Sprintf("  %s - %d/%d\n", c.ConnID, c.Sent, c.End-c.Start+1)
+		}
+		str += "\n"
+	}
 
 	str += "\nPress Ctrl+C or 'q' to quit.\n\n"
 

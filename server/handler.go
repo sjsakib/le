@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,7 +56,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 		"path", r.URL.Path)
 
-	reqHelper.publishNewConn(clientIP, clientHost)
 	defer reqHelper.publishConnClose()
 
 	if r.Method != http.MethodGet {
@@ -126,18 +124,18 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
 	w.Header().Set("ETag", fmt.Sprintf(`"%x-%x"`, info.ModTime().Unix(), info.Size()))
 
-	fileName := filepath.Base(absPath)
+	fileDisplayPath := utils.ReplaceHome(absPath)
 	var totalSent int64 = 0
 	var totalMBSent float64
 	buf := make([]byte, 1024*1024) // 1MB buffer
 	var lastReportedSent int64 = 0
 	var lastReportedTime = time.Now()
-	reqHelper.publishDownloadStart(fileName, contentLength, startByte, startByte+contentLength-1)
+	reqHelper.publishDownloadStart(fileDisplayPath, info.Size(), startByte, startByte+contentLength-1, clientIP, clientHost)
 	for {
 		n, readErr := reader.Read(buf)
 		if readErr != nil {
 			if readErr != io.EOF {
-				slog.ErrorContext(reqHelper.ctx, "Error reading file", "error", readErr, "file", fileName)
+				slog.ErrorContext(reqHelper.ctx, "Error reading file", "error", readErr, "file", fileDisplayPath)
 			}
 			break
 		}
@@ -145,12 +143,12 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			_, writeErr := w.Write(buf[:n])
 			if writeErr != nil {
-				slog.ErrorContext(reqHelper.ctx, "Error writing response", "error", writeErr, "file", fileName)
+				slog.ErrorContext(reqHelper.ctx, "Error writing response", "error", writeErr, "file", fileDisplayPath)
 				break
 			}
 			totalSent += int64(n)
 
-			reqHelper.publishDownloadProgress(int(totalSent))
+			reqHelper.publishDownloadProgress(int64(n))
 
 			if time.Since(lastReportedTime) > downloadProgressLogInterval {
 				totalMBSent = float64(totalSent) / 1024 / 1024
@@ -162,7 +160,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				msg := fmt.Sprintf("%7.2f / %7.2f MB sent | %2.2f%% | %5.2f MB/s",
 					totalMBSent, float64(contentLength)/1024/1024, progress, mbps)
 
-				slog.InfoContext(reqHelper.ctx, msg, "file", fileName)
+				slog.InfoContext(reqHelper.ctx, msg, "file", fileDisplayPath)
 
 				lastReportedSent = totalSent
 				lastReportedTime = time.Now()
@@ -171,7 +169,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	slog.InfoContext(reqHelper.ctx, "TRANSFER COMPLETE", "file", fileName, "totalSent_mb", totalMBSent, "duration", time.Since(transferStart))
+	slog.InfoContext(reqHelper.ctx, "TRANSFER COMPLETE", "file", fileDisplayPath, "totalSent_mb", totalMBSent, "duration", time.Since(transferStart))
 }
 
 type reqHelper struct {
@@ -198,38 +196,31 @@ func (h *reqHelper) attachReqId() *context.Context {
 	return &ctx
 }
 
-func (h *reqHelper) publishNewConn(ip string, host string) {
-	h.ch <- EventConnOpen{
-		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
-		Client: &Client{
-			IP:          ip,
-			Host:        host,
-			UserAgent:   h.r.UserAgent(),
-			ConnectedAt: time.Now(),
-		},
-	}
-}
-
 func (h *reqHelper) publishConnClose() {
 	h.ch <- EventConnClose{
 		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
 	}
 }
 
-func (h *reqHelper) publishDownloadProgress(sent int) {
-	h.ch <- EventFileProgress{
+func (h *reqHelper) publishDownloadProgress(sent int64) {
+	h.ch <- EventDownloadProgress{
 		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
 		Sent:   sent,
 	}
 }
 
-func (h *reqHelper) publishDownloadStart(fileName string, fileSize int64, rangeStart, rangeEnd int64) {
+func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64, rangeStart, rangeEnd int64, clientIP string, clientHost string) {
 	h.ch <- EventDownloadStart{
-		ConnID:    h.ctx.Value(utils.RequestIDKey).(string),
-		FileName:  fileName,
-		Time:      time.Now(),
-		TotalSize: fileSize,
-		Range:     Range{Start: rangeStart, End: rangeEnd},
+		ConnID:          h.ctx.Value(utils.RequestIDKey).(string),
+		FileDisplayPath: fileDisplayPath,
+		Time:            time.Now(),
+		TotalSize:       fileSize,
+		Range:           Range{Start: rangeStart, End: rangeEnd},
+		Client: &Client{
+			IP:        clientIP,
+			Host:      clientHost,
+			UserAgent: h.r.UserAgent(),
+		},
 	}
 }
 

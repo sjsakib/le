@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"time"
 
 	"log/slog"
 	"net/http"
@@ -33,8 +32,10 @@ func NewServer(dir string, port int, ch chan ServerEventName) (*Server, error) {
 		Port:    port,
 		eventCh: ch,
 		state: ServerState{
-			Dir:   utils.ReplaceHome(dir),
-			Conns: make(map[string]*Conn),
+			Dir:       utils.ReplaceHome(dir),
+			Conns:     make(map[string]*Conn),
+			Downloads: make(map[string]*Download),
+			Clients:   make(map[string]*Client),
 		},
 	}, nil
 }
@@ -86,31 +87,19 @@ func (s *Server) GetState() *ServerState {
 func (s *Server) listenForData(ch <-chan ServerEvent) {
 	for data := range ch {
 		switch data := data.(type) {
-		case EventConnOpen:
-			s.handleConnOpen(data)
 		case EventConnClose:
-			s.handleConnClose(data)
-		case EventFileProgress:
-			s.handleDownloadProgress(data)
+			s.handleConnClose(&data)
+		case EventDownloadProgress:
+			s.handleDownloadProgress(&data)
 		case EventDownloadStart:
-			s.handleDownloadStart(data)
+			s.handleDownloadStart(&data)
 		default:
 			slog.Warn("Unknown server event", "event", data)
 		}
 	}
 }
 
-func (s *Server) handleConnOpen(event EventConnOpen) {
-	s.state.Conns[event.ConnID] = &Conn{
-		ID:        event.ConnID,
-		Client:    event.Client,
-		UpdatedAt: event.Time,
-		Filename:  event.Client.UserAgent, // Assuming filename is derived from UserAgent for simplicity
-	}
-	s.publish(EvNameConnOpen)
-}
-
-func (s *Server) handleConnClose(event EventConnClose) {
+func (s *Server) handleConnClose(event *EventConnClose) {
 	if _, exists := s.state.Conns[event.ConnID]; exists {
 		delete(s.state.Conns, event.ConnID)
 		s.publish(EvNameConnClose)
@@ -119,29 +108,12 @@ func (s *Server) handleConnClose(event EventConnClose) {
 	}
 }
 
-func (s *Server) handleDownloadStart(event EventDownloadStart) {
-	conn, exists := s.state.Conns[event.ConnID]
-	if !exists {
-		slog.Warn("Download start event for unknown connection", "conn_id", event.ConnID)
-		return
-	}
-
-	conn.Filename = event.FileName
-	conn.TotalSent = 0
-	conn.UpdatedAt = event.Time
-
-	s.publish(EvNameFileProgress)
+func (s *Server) handleDownloadStart(event *EventDownloadStart) {
+	s.state.HandleDownloadStart(event)
+	s.publish(EvNameDownloadProgress)
 }
 
-func (s *Server) handleDownloadProgress(event EventFileProgress) {
-	conn, exists := s.state.Conns[event.ConnID]
-	if !exists {
-		slog.Warn("File progress event for unknown connection", "conn_id", event.ConnID)
-		return
-	}
-
-	conn.TotalSent += int64(event.Sent)
-	conn.CurSpeed = int64(float64(event.Sent) / time.Since(conn.UpdatedAt).Seconds())
-	conn.UpdatedAt = event.Time
-	s.publish(EvNameFileProgress)
+func (s *Server) handleDownloadProgress(event *EventDownloadProgress) {
+	s.state.HandleDownloadProgress(event)
+	s.publish(EvNameDownloadProgress)
 }

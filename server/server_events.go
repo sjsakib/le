@@ -5,18 +5,11 @@ import "time"
 type ServerEventName string
 
 const (
-	EvNameConnOpen      ServerEventName = "conn_open"
-	EvNameConnClose     ServerEventName = "conn_close"
-	EvNameDownloadStart ServerEventName = "download_start"
-	EvNameFileProgress  ServerEventName = "file_progress"
-	EvNameAddrUpdated   ServerEventName = "addr_updated"
+	EvNameDownloadStart    ServerEventName = "download_start"
+	EvNameDownloadProgress ServerEventName = "download_progress"
+	EvNameConnClose        ServerEventName = "conn_close"
+	EvNameAddrUpdated      ServerEventName = "addr_updated"
 )
-
-type EventConnOpen struct {
-	ConnID string
-	Client *Client
-	Time   time.Time
-}
 
 type Range struct {
 	Start int64
@@ -24,11 +17,12 @@ type Range struct {
 }
 
 type EventDownloadStart struct {
-	ConnID    string
-	FileName  string
-	TotalSize int64
-	Range     Range
-	Time      time.Time
+	ConnID          string
+	Client          *Client
+	FileDisplayPath string
+	TotalSize       int64
+	Range           Range
+	Time            time.Time
 }
 
 type EventConnClose struct {
@@ -36,9 +30,9 @@ type EventConnClose struct {
 	Time   time.Time
 }
 
-type EventFileProgress struct {
+type EventDownloadProgress struct {
 	ConnID string
-	Sent   int
+	Sent   int64
 	Time   time.Time
 }
 
@@ -46,14 +40,11 @@ type ServerEvent interface {
 	EventName() ServerEventName
 }
 
-func (e EventConnOpen) EventName() ServerEventName {
-	return EvNameConnOpen
-}
 func (e EventConnClose) EventName() ServerEventName {
 	return EvNameConnClose
 }
-func (e EventFileProgress) EventName() ServerEventName {
-	return EvNameFileProgress
+func (e EventDownloadProgress) EventName() ServerEventName {
+	return EvNameDownloadProgress
 }
 func (e EventDownloadStart) EventName() ServerEventName {
 	return EvNameDownloadStart
