@@ -131,6 +131,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var lastReportedSent int64 = 0
 	var lastReportedTime = time.Now()
 	reqHelper.publishDownloadStart(fileDisplayPath, info.Size(), startByte, startByte+contentLength-1, clientIP, clientHost)
+	slog.Info("Starting download", "file", fileDisplayPath, "totalSize", info.Size(), "rangeStart", startByte, "contentLength", contentLength, "clientIP", clientIP, "clientHost", clientHost)
 	for {
 		n, readErr := reader.Read(buf)
 		if readErr != nil {
@@ -206,6 +207,7 @@ func (h *reqHelper) publishDownloadProgress(sent int64) {
 	h.ch <- EventDownloadProgress{
 		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
 		Sent:   sent,
+		Time:   time.Now(),
 	}
 }
 
@@ -230,12 +232,12 @@ func (h *reqHelper) handleRange(file *os.File, fileInfo os.FileInfo) (startByte 
 	rng := h.r.Header.Get("Range")
 	contentLength = fileInfo.Size()
 	reader = file
-	startByte = 0
 	if rng != "" {
-		startByte, endByte, parseErr := utils.ParseRangeHeader(rng, fileInfo.Size())
+		hStartByte, endByte, parseErr := utils.ParseRangeHeader(rng, fileInfo.Size())
 		if parseErr != nil {
 			return 0, 0, nil, ErrInvalidRangeHeader
 		}
+		startByte = hStartByte
 
 		if _, err := file.Seek(startByte, io.SeekStart); err != nil {
 			return 0, 0, nil, err

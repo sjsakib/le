@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mdp/qrterminal/v3"
+	"go.sakib.dev/le/pkg/utils"
 	"go.sakib.dev/le/server"
 )
 
@@ -23,6 +26,10 @@ func newModel(srvr *server.Server) model {
 
 func (m model) Init() tea.Cmd {
 	return nil
+}
+
+func clamp[T cmp.Ordered](v T, mn, mx T) T {
+	return max(mn, min(v, mx))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -59,33 +66,100 @@ func (m model) View() string {
 		BlackChar:  qrterminal.BLACK_BLACK,
 	})
 
-	connCount := len(state.Conns)
-	str := fmt.Sprintf("Server running at: %s\nNumber of connections: %d\n", *state.Addr, connCount)
+	var str strings.Builder
+	fmt.Fprintf(&str, "Server running at: %s\n", *state.Addr)
 
-	str += fmt.Sprintf("From directory %s\n", state.Dir)
+	fmt.Fprintf(&str, "From directory %s\n", state.Dir)
 
-	str += stringWriter.String()
+	str.WriteString(stringWriter.String())
 
-	str += "\n"
+	str.WriteString("\n")
 
-	for _, d := range state.Downloads {
-		str += fmt.Sprintf("%s\n", d.FileDisplayPath)
+	downloadKeys := make([]*string, 0, len(state.Downloads))
+
+	for i := range state.Downloads {
+		downloadKeys = append(downloadKeys, &i)
+	}
+
+	// sort keys with StartedAt
+	sort.Slice(downloadKeys, func(i, j int) bool {
+		return state.Downloads[*downloadKeys[i]].StartedAt.Before(state.Downloads[*downloadKeys[j]].StartedAt)
+	})
+
+	for _, d := range downloadKeys {
+		d := state.Downloads[*d]
+		fmt.Fprintf(&str, "%s\n ", d.FileDisplayPath)
 
 		if d.Chunks == nil {
 			slog.Warn("No chunks found for download", "download_id", d.ID)
 		}
 
-		for _, c := range d.Chunks {
-			slog.Debug("Chunk info", "chunk", c)
-			slog.Debug("Sent from tui", "sent", c.Sent)
-			str += fmt.Sprintf("  %s - %d/%d\n", c.ConnID, c.Sent, c.End-c.Start+1)
+		barBlockCount := 50
+		blockLevels := []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
+		blcokLevelCount := len(blockLevels)
+
+		totalRequested := int64(0)
+		totalSent := int64(0)
+
+		blocksRendered := 0
+		start := int64(0)
+		end := int64(0)
+
+		blockStr := strings.Builder{}
+		for i, c := range d.Chunks {
+			if i == 0 {
+				start = c.Start
+			}
+			end = c.End
+			if i != len(d.Chunks)-1 {
+				nextChunk := d.Chunks[i+1]
+				if nextChunk.Start < c.End {
+					end = nextChunk.Start
+				}
+			}
+
+			chunkSize := max(end-start+1, 0)
+			totalRequested += chunkSize
+
+			chunkProportion := float64(chunkSize) / float64(d.TotalSize)
+			chunkBlockCount := int(float64(barBlockCount) * chunkProportion)
+
+			blocksRendered += chunkBlockCount
+
+			if i == len(d.Chunks)-1 {
+				chunkBlockCount += barBlockCount - blocksRendered
+			}
+
+			chunkProgress := float64(c.Sent) / float64(chunkSize)
+			chunkProgressBlocks := chunkProgress * float64(chunkBlockCount)
+
+			for j := 0; j < int(chunkBlockCount); j++ {
+				blockIdx := int(clamp((chunkProgressBlocks-float64(j))*(float64(blcokLevelCount)), 0, float64(blcokLevelCount)-1))
+				blockStr.WriteString(blockLevels[blockIdx])
+			}
+			start = end
+
+			if c.Sent >= chunkSize {
+				totalSent += chunkSize
+			} else {
+				totalSent += c.Sent
+			}
 		}
-		str += "\n"
+
+		totalProgress := float64(totalSent) / float64(totalRequested)
+
+		fmt.Fprintf(&str, "%5.2f%% %s  %s / %s",
+			totalProgress*100,
+			blockStr.String(),
+			utils.HumanizeSize(totalSent),
+			utils.HumanizeSize(totalRequested))
+
+		str.WriteString("\n\n")
 	}
 
-	str += "\nPress Ctrl+C or 'q' to quit.\n\n"
+	str.WriteString("\nPress Ctrl+C or 'q' to quit.\n\n")
 
-	return str
+	return str.String()
 }
 
 func Start(srvr *server.Server, ch <-chan server.ServerEventName) error {

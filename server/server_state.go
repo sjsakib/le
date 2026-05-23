@@ -39,6 +39,7 @@ type Download struct {
 	ClientID        string
 	FileDisplayPath string
 	TotalSize       int64
+	StartedAt       time.Time
 	Chunks          []*DownloadChunk
 }
 
@@ -84,6 +85,7 @@ func (s *ServerState) HandleDownloadStart(event *EventDownloadStart) {
 				ClientID:        event.Client.GetID(),
 				FileDisplayPath: event.FileDisplayPath,
 				TotalSize:       event.TotalSize,
+				StartedAt:       event.Time,
 				Chunks:          make([]*DownloadChunk, 0),
 			}
 			s.Downloads[download.ID] = download

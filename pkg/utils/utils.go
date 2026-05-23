@@ -89,9 +89,11 @@ func ParseRangeHeader(header string, size int64) (start, end int64, err error) {
 		end = size - 1
 	}
 
-	if start > end || end > size {
+	if start > end || end >= size {
 		return 0, 0, errMsg
 	}
+
+	slog.Info("Parsed range header", "start", start, "end", end, "size", size)
 
 	return start, end, nil
 }
@@ -166,4 +168,36 @@ func ReplaceHome(dir string) string {
 		dir = strings.ReplaceAll(dir, home, "~")
 	}
 	return dir
+}
+
+func HumanizeSize(size int64) string {
+	if size == 0 {
+		return ""
+	}
+
+	const unit = 1024.0
+	if size < unit {
+		return ""
+	}
+
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	exp := 0
+	val := float64(size)
+
+	for val >= unit && exp < len(units)-1 {
+		val /= unit
+		exp++
+	}
+
+	if val < 10 {
+		// cause sprintf would convert 1.0 to 1
+		whole := int(val)
+		frac := int((val - float64(whole)) * 10)
+		if frac == 0 {
+			return fmt.Sprintf("%d %s", whole, units[exp])
+		}
+		return fmt.Sprintf("%d.%d %s", whole, frac, units[exp])
+	}
+
+	return fmt.Sprintf("%d %s", int(val), units[exp])
 }
