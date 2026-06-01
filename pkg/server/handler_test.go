@@ -53,6 +53,25 @@ func TestServeDirectoryDefaultsToLatestFirst(t *testing.T) {
 	body := renderDirectory(t, dir, "")
 
 	assertFileOrder(t, body, "new.txt", "old.txt")
+	if !strings.Contains(body, `<a class="file-header-modified active" href="?order=asc&amp;sort=date">Modified<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-desc"`) {
+		t.Fatalf("expected date header to be active with descending indicator, body:\n%s", body)
+	}
+}
+
+func TestServeDirectorySortsFilesByDateAscending(t *testing.T) {
+	dir := t.TempDir()
+	oldTime := time.Now().Add(-2 * time.Hour)
+	newTime := time.Now().Add(-1 * time.Hour)
+
+	writeTestFile(t, dir, "old.txt", 2048, oldTime)
+	writeTestFile(t, dir, "new.txt", 2048, newTime)
+
+	body := renderDirectory(t, dir, "sort=date&order=asc")
+
+	assertFileOrder(t, body, "old.txt", "new.txt")
+	if !strings.Contains(body, `<a class="file-header-modified active" href="?order=desc&amp;sort=date">Modified<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-asc"`) {
+		t.Fatalf("expected date header to be active with ascending indicator, body:\n%s", body)
+	}
 }
 
 func TestServeDirectorySortsFilesBySize(t *testing.T) {
@@ -66,8 +85,56 @@ func TestServeDirectorySortsFilesBySize(t *testing.T) {
 	body := renderDirectory(t, dir, "sort=size")
 
 	assertFileOrder(t, body, "large.txt", "medium.txt", "small.txt")
-	if !strings.Contains(body, `<option value="size" selected>Largest first</option>`) {
-		t.Fatalf("expected size sort option to be selected, body:\n%s", body)
+	if !strings.Contains(body, `<a class="file-header-size active" href="?order=asc&amp;sort=size">Size<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-desc"`) {
+		t.Fatalf("expected size header to be active with descending indicator, body:\n%s", body)
+	}
+}
+
+func TestServeDirectorySortsFilesBySizeAscending(t *testing.T) {
+	dir := t.TempDir()
+	modTime := time.Now().Add(-1 * time.Hour)
+
+	writeTestFile(t, dir, "small.txt", 512, modTime)
+	writeTestFile(t, dir, "large.txt", 4096, modTime)
+	writeTestFile(t, dir, "medium.txt", 2048, modTime)
+
+	body := renderDirectory(t, dir, "sort=size&order=asc")
+
+	assertFileOrder(t, body, "small.txt", "medium.txt", "large.txt")
+	if !strings.Contains(body, `<a class="file-header-size active" href="?order=desc&amp;sort=size">Size<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-asc"`) {
+		t.Fatalf("expected size header to be active with ascending indicator, body:\n%s", body)
+	}
+}
+
+func TestServeDirectorySortsFilesByName(t *testing.T) {
+	dir := t.TempDir()
+	modTime := time.Now().Add(-1 * time.Hour)
+
+	writeTestFile(t, dir, "beta.txt", 2048, modTime)
+	writeTestFile(t, dir, "alpha.txt", 2048, modTime)
+	writeTestFile(t, dir, "gamma.txt", 2048, modTime)
+
+	body := renderDirectory(t, dir, "sort=name")
+
+	assertFileOrder(t, body, "alpha.txt", "beta.txt", "gamma.txt")
+	if !strings.Contains(body, `<a class="file-header-name active" href="?order=desc&amp;sort=name">Name<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-asc"`) {
+		t.Fatalf("expected name header to be active with ascending indicator, body:\n%s", body)
+	}
+}
+
+func TestServeDirectorySortsFilesByNameDescending(t *testing.T) {
+	dir := t.TempDir()
+	modTime := time.Now().Add(-1 * time.Hour)
+
+	writeTestFile(t, dir, "beta.txt", 2048, modTime)
+	writeTestFile(t, dir, "alpha.txt", 2048, modTime)
+	writeTestFile(t, dir, "gamma.txt", 2048, modTime)
+
+	body := renderDirectory(t, dir, "sort=name&order=desc")
+
+	assertFileOrder(t, body, "gamma.txt", "beta.txt", "alpha.txt")
+	if !strings.Contains(body, `<a class="file-header-name active" href="?order=asc&amp;sort=name">Name<span class="sort-indicator" aria-hidden="true"><svg class="sort-icon sort-icon-desc"`) {
+		t.Fatalf("expected name header to be active with descending indicator, body:\n%s", body)
 	}
 }
 
@@ -88,6 +155,9 @@ func TestServeDirectorySearchFiltersFileNames(t *testing.T) {
 	}
 	if !strings.Contains(body, `value="REPORT"`) {
 		t.Fatalf("expected search query to be preserved in input, body:\n%s", body)
+	}
+	if !strings.Contains(body, `href="?order=desc&amp;q=REPORT&amp;sort=size"`) {
+		t.Fatalf("expected size sort link to preserve search query, body:\n%s", body)
 	}
 }
 

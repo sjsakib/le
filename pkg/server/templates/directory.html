@@ -83,7 +83,6 @@
         }
 
         .file-search,
-        .file-sort,
         .file-controls button {
             border: 1px solid #ddd;
             border-radius: 6px;
@@ -92,8 +91,7 @@
             height: 36px;
         }
 
-        .file-search,
-        .file-sort {
+        .file-search {
             background: #fff;
             color: #333;
             padding: 0 10px;
@@ -108,6 +106,80 @@
 
         .file-controls button:hover {
             background-color: #22313f;
+        }
+
+        .file-header {
+            display: flex;
+            align-items: center;
+            padding: 8px 20px;
+            border-bottom: 1px solid #e6e6e6;
+            background-color: #fafafa;
+            color: #777;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .file-header-spacer {
+            width: 36px;
+            flex-shrink: 0;
+        }
+
+        .file-header-name-column {
+            flex-grow: 1;
+            min-width: 0;
+        }
+
+        .file-header a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            color: #666;
+            height: 26px;
+            line-height: 24px;
+            text-decoration: none;
+        }
+
+        .file-header-name {
+            justify-content: flex-start;
+        }
+
+        .file-header a:hover {
+            color: #2c3e50;
+        }
+
+        .file-header a.active {
+            color: #2c3e50;
+        }
+
+        .sort-indicator {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            margin-left: 4px;
+        }
+
+        .sort-icon {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2.5;
+        }
+
+        .file-header-size {
+            margin-right: 20px;
+            width: 70px;
+            flex-shrink: 0;
+        }
+
+        .file-header-modified {
+            width: 150px;
+            flex-shrink: 0;
         }
 
         .file-item {
@@ -235,6 +307,19 @@
                 font-size: 12px;
             }
 
+            .file-header {
+                padding: 8px 20px;
+            }
+
+            .file-header-size {
+                margin-right: 10px;
+                width: 56px;
+            }
+
+            .file-header-modified {
+                width: auto;
+            }
+
             .file-controls {
                 flex-wrap: wrap;
             }
@@ -268,14 +353,19 @@
 
         <form class="file-controls" method="get">
             <input class="file-search" type="search" name="q" value="{{.SearchQuery}}" placeholder="Search files" aria-label="Search files">
-            <select class="file-sort" name="sort" aria-label="Sort files">
-                <option value="date" {{if eq .Sort "date"}}selected{{end}}>Latest first</option>
-                <option value="size" {{if eq .Sort "size"}}selected{{end}}>Largest first</option>
-            </select>
-            <button type="submit">Apply</button>
+            <input type="hidden" name="sort" value="{{.Sort}}">
+            <input type="hidden" name="order" value="{{.Order}}">
+            <button type="submit">Search</button>
         </form>
 
         <div class="file-list">
+            <div class="file-header">
+                <span class="file-header-spacer"></span>
+                <span class="file-header-name-column"><a class="file-header-name {{if eq .Sort "name"}}active{{end}}" href="{{.NameSortURL}}">Name{{if eq .Sort "name"}}<span class="sort-indicator" aria-hidden="true">{{if eq .Order "asc"}}<svg class="sort-icon sort-icon-asc" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg>{{else}}<svg class="sort-icon sort-icon-desc" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>{{end}}</span>{{end}}</a></span>
+                <a class="file-header-size {{if eq .Sort "size"}}active{{end}}" href="{{.SizeSortURL}}">Size{{if eq .Sort "size"}}<span class="sort-indicator" aria-hidden="true">{{if eq .Order "asc"}}<svg class="sort-icon sort-icon-asc" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg>{{else}}<svg class="sort-icon sort-icon-desc" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>{{end}}</span>{{end}}</a>
+                <a class="file-header-modified {{if eq .Sort "date"}}active{{end}}" href="{{.DateSortURL}}">Modified{{if eq .Sort "date"}}<span class="sort-indicator" aria-hidden="true">{{if eq .Order "asc"}}<svg class="sort-icon sort-icon-asc" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg>{{else}}<svg class="sort-icon sort-icon-desc" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>{{end}}</span>{{end}}</a>
+            </div>
+
             {{if .ParentPath}}
             <a href="{{.ParentPath}}" class="file-item">
                 <svg class="file-icon icon-folder" viewBox="0 0 24 24">

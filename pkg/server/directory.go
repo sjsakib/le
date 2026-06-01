@@ -4,6 +4,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,11 +47,18 @@ type DirectoryData struct {
 	Breadcrumbs []Breadcrumb
 	SearchQuery string
 	Sort        string
+	Order       string
+	NameSortURL string
+	DateSortURL string
+	SizeSortURL string
 }
 
 const (
+	directorySortName = "name"
 	directorySortDate = "date"
 	directorySortSize = "size"
+	directorySortAsc  = "asc"
+	directorySortDesc = "desc"
 )
 
 func isCodeFile(name string) bool {
@@ -132,14 +140,56 @@ func humanizeSize(size int64) string {
 }
 
 func normalizeDirectorySort(sortBy string) string {
+	if sortBy == directorySortName {
+		return directorySortName
+	}
 	if sortBy == directorySortSize {
 		return directorySortSize
 	}
 	return directorySortDate
 }
 
-func fileNameLess(left, right string) bool {
-	return strings.ToLower(left) < strings.ToLower(right)
+func normalizeDirectoryOrder(order string) string {
+	if order == directorySortAsc {
+		return directorySortAsc
+	}
+	return directorySortDesc
+}
+
+func defaultDirectoryOrder(sortBy string) string {
+	if sortBy == directorySortName {
+		return directorySortAsc
+	}
+	return directorySortDesc
+}
+
+func nextDirectorySortOrder(currentSort, currentOrder, sortBy string) string {
+	if currentSort == sortBy {
+		if currentOrder == directorySortAsc {
+			return directorySortDesc
+		}
+		return directorySortAsc
+	}
+	return defaultDirectoryOrder(sortBy)
+}
+
+func directorySortURL(searchQuery, currentSort, currentOrder, sortBy string) string {
+	values := url.Values{}
+	if searchQuery != "" {
+		values.Set("q", searchQuery)
+	}
+	values.Set("sort", sortBy)
+	values.Set("order", nextDirectorySortOrder(currentSort, currentOrder, sortBy))
+	return "?" + values.Encode()
+}
+
+func compareFileName(left, right string, ascending bool) bool {
+	left = strings.ToLower(left)
+	right = strings.ToLower(right)
+	if ascending {
+		return left < right
+	}
+	return left > right
 }
 
 func convertIntToString(n int) string {
@@ -192,6 +242,10 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 	}
 
 	sortBy := normalizeDirectorySort(r.URL.Query().Get("sort"))
+	sortOrder := defaultDirectoryOrder(sortBy)
+	if r.URL.Query().Has("order") {
+		sortOrder = normalizeDirectoryOrder(r.URL.Query().Get("order"))
+	}
 	searchQuery := strings.TrimSpace(r.URL.Query().Get("q"))
 	normalizedSearchQuery := strings.ToLower(searchQuery)
 	var dirs, regularFiles []FileInfo
@@ -243,18 +297,27 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 	// file and directory sorting
 	sort.Slice(dirs, func(i, j int) bool {
 		if sortBy == directorySortDate && !dirs[i].ModifiedTime.Equal(dirs[j].ModifiedTime) {
+			if sortOrder == directorySortAsc {
+				return dirs[i].ModifiedTime.Before(dirs[j].ModifiedTime)
+			}
 			return dirs[i].ModifiedTime.After(dirs[j].ModifiedTime)
 		}
-		return fileNameLess(dirs[i].Name, dirs[j].Name)
+		return compareFileName(dirs[i].Name, dirs[j].Name, sortBy != directorySortName || sortOrder == directorySortAsc)
 	})
 	sort.Slice(regularFiles, func(i, j int) bool {
 		if sortBy == directorySortSize && regularFiles[i].SizeBytes != regularFiles[j].SizeBytes {
+			if sortOrder == directorySortAsc {
+				return regularFiles[i].SizeBytes < regularFiles[j].SizeBytes
+			}
 			return regularFiles[i].SizeBytes > regularFiles[j].SizeBytes
 		}
 		if sortBy == directorySortDate && !regularFiles[i].ModifiedTime.Equal(regularFiles[j].ModifiedTime) {
+			if sortOrder == directorySortAsc {
+				return regularFiles[i].ModifiedTime.Before(regularFiles[j].ModifiedTime)
+			}
 			return regularFiles[i].ModifiedTime.After(regularFiles[j].ModifiedTime)
 		}
-		return fileNameLess(regularFiles[i].Name, regularFiles[j].Name)
+		return compareFileName(regularFiles[i].Name, regularFiles[j].Name, sortBy != directorySortName || sortOrder == directorySortAsc)
 	})
 
 	// directory first and then regular files
@@ -293,6 +356,10 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		Breadcrumbs: breadcrumbs,
 		SearchQuery: searchQuery,
 		Sort:        sortBy,
+		Order:       sortOrder,
+		NameSortURL: directorySortURL(searchQuery, sortBy, sortOrder, directorySortName),
+		DateSortURL: directorySortURL(searchQuery, sortBy, sortOrder, directorySortDate),
+		SizeSortURL: directorySortURL(searchQuery, sortBy, sortOrder, directorySortSize),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
