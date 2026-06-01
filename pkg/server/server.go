@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -15,6 +16,8 @@ import (
 type Server struct {
 	Dir  string
 	Port int
+
+	server *http.Server
 
 	subLock     sync.RWMutex
 	subscribers []chan<- ServerEvent
@@ -56,13 +59,24 @@ func (s *Server) Start() error {
 	s.PrintUrl()
 
 	addr := fmt.Sprintf(":%d", s.Port)
-	err := http.ListenAndServe(addr, handler)
+	s.server = &http.Server{Addr: addr, Handler: handler}
+	err := s.server.ListenAndServe()
 
-	if err != nil {
+	if err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("error starting server: %w", err)
 	}
 
 	return nil
+}
+
+func (s *Server) Stop() error {
+	if s.server == nil {
+		return nil
+	}
+	slog.Info("Closing server")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.server.Shutdown(ctx)
 }
 
 func (s *Server) PrintUrl() {

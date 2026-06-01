@@ -40,6 +40,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			m.srvr.Stop()
 			return m, tea.Quit
 		}
 	case string:
@@ -187,22 +188,14 @@ func Start(srvr *server.Server) error {
 	old := os.Stdout
 
 	defer func() {
-		e := recover()
-		if e != nil {
-			os.Stdout = old // Restore original stdout
-			p.Kill()
-		}
+		os.Stdout = old // Restore original stdout
+		p.Kill()
 		close(ch)
 	}()
-
-	// Redirect stdout to /dev/null
-	// devNull, _ := os.Open(os.DevNull)
-	// os.Stdout = devNull
 
 	if _, err := p.Run(); err != nil {
 		return err
 	}
 
-	os.Stdout = old // Restore original stdout
 	return nil
 }

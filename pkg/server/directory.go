@@ -18,17 +18,19 @@ var templateFS embed.FS
 var dirTemplate = template.Must(template.ParseFS(templateFS, "templates/directory.html"))
 
 type FileInfo struct {
-	Name      string
-	Path      string
-	Size      string
-	Modified  string
-	IsDir     bool
-	IsCode    bool
-	IsImage   bool
-	IsAudio   bool
-	IsVideo   bool
-	IsArchive bool
-	IsText    bool
+	Name         string
+	Path         string
+	Size         string
+	SizeBytes    int64
+	Modified     string
+	ModifiedTime time.Time
+	IsDir        bool
+	IsCode       bool
+	IsImage      bool
+	IsAudio      bool
+	IsVideo      bool
+	IsArchive    bool
+	IsText       bool
 }
 
 type Breadcrumb struct {
@@ -42,7 +44,14 @@ type DirectoryData struct {
 	ParentPath  string
 	Files       []FileInfo
 	Breadcrumbs []Breadcrumb
+	SearchQuery string
+	Sort        string
 }
+
+const (
+	directorySortDate = "date"
+	directorySortSize = "size"
+)
 
 func isCodeFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
@@ -97,7 +106,7 @@ func humanizeSize(size int64) string {
 
 	const unit = 1024.0
 	if size < unit {
-		return ""
+		return convertIntToString(int(size)) + " B"
 	}
 
 	units := []string{"B", "KB", "MB", "GB", "TB"}
@@ -120,6 +129,17 @@ func humanizeSize(size int64) string {
 	}
 
 	return convertIntToString(int(val)) + " " + units[exp]
+}
+
+func normalizeDirectorySort(sortBy string) string {
+	if sortBy == directorySortSize {
+		return directorySortSize
+	}
+	return directorySortDate
+}
+
+func fileNameLess(left, right string) bool {
+	return strings.ToLower(left) < strings.ToLower(right)
 }
 
 func convertIntToString(n int) string {
@@ -171,11 +191,18 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		return
 	}
 
+	sortBy := normalizeDirectorySort(r.URL.Query().Get("sort"))
+	searchQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	normalizedSearchQuery := strings.ToLower(searchQuery)
 	var dirs, regularFiles []FileInfo
 
 	for _, file := range files {
 
 		if strings.HasPrefix(file.Name(), ".") {
+			continue
+		}
+
+		if normalizedSearchQuery != "" && !strings.Contains(strings.ToLower(file.Name()), normalizedSearchQuery) {
 			continue
 		}
 
@@ -190,10 +217,11 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		}
 
 		fileInfo := FileInfo{
-			Name:     file.Name(),
-			Path:     urlPath,
-			Modified: formatTime(info.ModTime()),
-			IsDir:    file.IsDir(),
+			Name:         file.Name(),
+			Path:         urlPath,
+			Modified:     formatTime(info.ModTime()),
+			ModifiedTime: info.ModTime(),
+			IsDir:        file.IsDir(),
 		}
 
 		if file.IsDir() {
@@ -201,6 +229,7 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 			dirs = append(dirs, fileInfo)
 		} else {
 			fileInfo.Size = humanizeSize(info.Size())
+			fileInfo.SizeBytes = info.Size()
 			fileInfo.IsCode = isCodeFile(file.Name())
 			fileInfo.IsImage = isImageFile(file.Name())
 			fileInfo.IsAudio = isAudioFile(file.Name())
@@ -213,10 +242,19 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 
 	// file and directory sorting
 	sort.Slice(dirs, func(i, j int) bool {
-		return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name)
+		if sortBy == directorySortDate && !dirs[i].ModifiedTime.Equal(dirs[j].ModifiedTime) {
+			return dirs[i].ModifiedTime.After(dirs[j].ModifiedTime)
+		}
+		return fileNameLess(dirs[i].Name, dirs[j].Name)
 	})
 	sort.Slice(regularFiles, func(i, j int) bool {
-		return strings.ToLower(regularFiles[i].Name) < strings.ToLower(regularFiles[j].Name)
+		if sortBy == directorySortSize && regularFiles[i].SizeBytes != regularFiles[j].SizeBytes {
+			return regularFiles[i].SizeBytes > regularFiles[j].SizeBytes
+		}
+		if sortBy == directorySortDate && !regularFiles[i].ModifiedTime.Equal(regularFiles[j].ModifiedTime) {
+			return regularFiles[i].ModifiedTime.After(regularFiles[j].ModifiedTime)
+		}
+		return fileNameLess(regularFiles[i].Name, regularFiles[j].Name)
 	})
 
 	// directory first and then regular files
@@ -253,6 +291,8 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		ParentPath:  parentPath,
 		Files:       allFiles,
 		Breadcrumbs: breadcrumbs,
+		SearchQuery: searchQuery,
+		Sort:        sortBy,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

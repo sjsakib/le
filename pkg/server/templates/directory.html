@@ -66,6 +66,50 @@
             overflow: hidden;
         }
 
+        .file-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-search {
+            flex: 1;
+            min-width: 160px;
+        }
+
+        .file-search,
+        .file-sort,
+        .file-controls button {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font: inherit;
+            font-size: 14px;
+            height: 36px;
+        }
+
+        .file-search,
+        .file-sort {
+            background: #fff;
+            color: #333;
+            padding: 0 10px;
+        }
+
+        .file-controls button {
+            background-color: #2c3e50;
+            color: #fff;
+            cursor: pointer;
+            padding: 0 14px;
+        }
+
+        .file-controls button:hover {
+            background-color: #22313f;
+        }
+
         .file-item {
             display: flex;
             align-items: center;
@@ -93,14 +137,19 @@
 
         .file-name {
             flex-grow: 1;
+            min-width: 0;
             font-size: 14px;
             color: #2c3e50;
+            overflow-wrap: anywhere;
         }
 
         .file-size {
             font-size: 13px;
             color: #666;
             margin-right: 20px;
+            min-width: 70px;
+            text-align: right;
+            flex-shrink: 0;
         }
 
         .file-modified {
@@ -175,13 +224,23 @@
                 font-size: 20px;
             }
 
-            .file-size {
-                display: none;
-            }
-
             .file-modified {
                 min-width: auto;
                 font-size: 12px;
+            }
+
+            .file-size {
+                margin-right: 10px;
+                min-width: 56px;
+                font-size: 12px;
+            }
+
+            .file-controls {
+                flex-wrap: wrap;
+            }
+
+            .file-search {
+                flex-basis: 100%;
             }
         }
     </style>
@@ -206,6 +265,15 @@
                 {{end}}
             </div>
         </div>
+
+        <form class="file-controls" method="get">
+            <input class="file-search" type="search" name="q" value="{{.SearchQuery}}" placeholder="Search files" aria-label="Search files">
+            <select class="file-sort" name="sort" aria-label="Sort files">
+                <option value="date" {{if eq .Sort "date"}}selected{{end}}>Latest first</option>
+                <option value="size" {{if eq .Sort "size"}}selected{{end}}>Largest first</option>
+            </select>
+            <button type="submit">Apply</button>
+        </form>
 
         <div class="file-list">
             {{if .ParentPath}}

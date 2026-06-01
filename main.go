@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"sync"
 
 	"go.sakib.dev/le/pkg/server"
 	"go.sakib.dev/le/pkg/tui"
@@ -20,14 +21,25 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
+	wg := sync.WaitGroup{}
+
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
+		err = tui.Start(srvr)
+		if err != nil {
+			log.Fatalf("Failed to start TUI: %v", err)
+		}
+
+	}()
+
+
+	go func() {
+		defer wg.Done()
 		if err := srvr.Start(); err != nil {
 			log.Fatalf("Failed to start srvr: %v", err)
 		}
 	}()
 
-	err = tui.Start(srvr)
-	if err != nil {
-		log.Fatalf("Failed to start TUI: %v", err)
-	}
+	wg.Wait()
 }
