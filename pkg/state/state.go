@@ -1,20 +1,13 @@
-package server
+package state
 
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
+
+	"go.sakib.dev/le/pkg/server"
 )
-
-type Client struct {
-	IP        string
-	Host      string
-	UserAgent string
-}
-
-func (c *Client) GetID() string {
-	return fmt.Sprintf("%s-%s", c.IP, c.UserAgent)
-}
 
 type Conn struct {
 	ID        string
@@ -47,11 +40,49 @@ type ServerState struct {
 	Dir       string
 	Addr      *string
 	Conns     map[string]*Conn
-	Clients   map[string]*Client
+	Clients   map[string]*server.Client
 	Downloads map[string]*Download
+	mx        sync.RWMutex
 }
 
-func (s *ServerState) HandleConnClose(event EventConnClose) {
+func New() *ServerState {
+	return &ServerState{
+		Dir:       "",
+		Addr:      nil,
+		Conns:     make(map[string]*Conn),
+		Clients:   make(map[string]*server.Client),
+		Downloads: make(map[string]*Download),
+		mx:        sync.RWMutex{},
+	}
+}
+
+func (s *ServerState) HandleEvent(event server.ServerEvent) {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+	switch event := event.(type) {
+	case *server.EventAddrUpdated:
+		s.Addr = &event.Addr
+	case *server.EventConnClose:
+		s.HandleConnClose(event)
+	case *server.EventDownloadProgress:
+		s.HandleDownloadProgress(event)
+	case *server.EventDownloadStart:
+		s.HandleDownloadStart(event)
+	default:
+		slog.Warn("Unknown server event", "event", event)
+	}
+
+}
+
+func (s *ServerState) RLock() {
+	s.mx.RLock()
+}
+
+func (s *ServerState) RUnlock() {
+	s.mx.RUnlock()
+}
+
+func (s *ServerState) HandleConnClose(event *server.EventConnClose) {
 	if _, exists := s.Conns[event.ConnID]; exists {
 		delete(s.Conns, event.ConnID)
 	} else {
@@ -59,11 +90,11 @@ func (s *ServerState) HandleConnClose(event EventConnClose) {
 	}
 }
 
-func GetDownloadID(client *Client, fileDisplayPath string) string {
+func GetDownloadID(client *server.Client, fileDisplayPath string) string {
 	return fmt.Sprintf("%s-%s", client.GetID(), fileDisplayPath)
 }
 
-func (s *ServerState) HandleDownloadStart(event *EventDownloadStart) {
+func (s *ServerState) HandleDownloadStart(event *server.EventDownloadStart) {
 	_, exists := s.Conns[event.ConnID]
 
 	if !exists {
@@ -109,7 +140,7 @@ func (s *ServerState) HandleDownloadStart(event *EventDownloadStart) {
 	}
 }
 
-func (s *ServerState) HandleDownloadProgress(event *EventDownloadProgress) {
+func (s *ServerState) HandleDownloadProgress(event *server.EventDownloadProgress) {
 	conn, exists := s.Conns[event.ConnID]
 
 	if !exists {

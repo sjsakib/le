@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ContextKey string
@@ -200,4 +201,35 @@ func HumanizeSize(size int64) string {
 	}
 
 	return fmt.Sprintf("%d %s", int(val), units[exp])
+}
+
+func ThrottleC[T any](in <-chan T, t time.Duration) chan T {
+	out := make(chan T)
+
+	go func() {
+		ticker := time.NewTicker(t)
+		defer ticker.Stop()
+		defer close(out)
+
+		var latest T
+		var hasLatest bool
+
+		for {
+			select {
+			case <-ticker.C:
+				if hasLatest {
+					out <- latest
+					hasLatest = false
+				}
+			case val, ok := <-in:
+				if !ok {
+					return
+				}
+				hasLatest = true
+				latest = val
+			}
+		}
+	}()
+
+	return out
 }

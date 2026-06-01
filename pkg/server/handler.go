@@ -198,13 +198,13 @@ func (h *reqHelper) attachReqId() *context.Context {
 }
 
 func (h *reqHelper) publishConnClose() {
-	h.ch <- EventConnClose{
+	h.ch <- &EventConnClose{
 		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
 	}
 }
 
 func (h *reqHelper) publishDownloadProgress(sent int64) {
-	h.ch <- EventDownloadProgress{
+	h.ch <- &EventDownloadProgress{
 		ConnID: h.ctx.Value(utils.RequestIDKey).(string),
 		Sent:   sent,
 		Time:   time.Now(),
@@ -212,7 +212,7 @@ func (h *reqHelper) publishDownloadProgress(sent int64) {
 }
 
 func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64, rangeStart, rangeEnd int64, clientIP string, clientHost string) {
-	h.ch <- EventDownloadStart{
+	h.ch <- &EventDownloadStart{
 		ConnID:          h.ctx.Value(utils.RequestIDKey).(string),
 		FileDisplayPath: fileDisplayPath,
 		Time:            time.Now(),

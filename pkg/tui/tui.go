@@ -11,16 +11,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mdp/qrterminal/v3"
 	"go.sakib.dev/le/pkg/utils"
-	"go.sakib.dev/le/server"
+
+	"go.sakib.dev/le/pkg/server"
+	"go.sakib.dev/le/pkg/state"
 )
 
 type model struct {
-	srvr *server.Server
+	srvr  *server.Server
+	state *state.ServerState
 }
 
 func newModel(srvr *server.Server) model {
 	return model{
-		srvr: srvr,
+		srvr:  srvr,
+		state: state.New(),
 	}
 }
 
@@ -51,7 +55,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	state := m.srvr.GetState()
+	m.state.RLock()
+	defer m.state.RUnlock()
+
+	state := m.state
 	if state.Addr == nil {
 		// return a loading indicator
 		return "Loading server address...\nPress Ctrl+C or 'q' to quit.\n"
@@ -162,11 +169,16 @@ func (m model) View() string {
 	return str.String()
 }
 
-func Start(srvr *server.Server, ch <-chan server.ServerEventName) error {
-	p := tea.NewProgram(newModel(srvr), tea.WithAltScreen())
+func Start(srvr *server.Server) error {
+	model := newModel(srvr)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+
+	ch := make(chan server.ServerEvent, 100)
+	srvr.Subscribe(ch)
 
 	go func() {
-		for range ch {
+		for event := range ch {
+			model.state.HandleEvent(event)
 			p.Send(tea.Msg("update"))
 		}
 	}()
@@ -174,9 +186,18 @@ func Start(srvr *server.Server, ch <-chan server.ServerEventName) error {
 	// Save original stdout
 	old := os.Stdout
 
+	defer func() {
+		e := recover()
+		if e != nil {
+			os.Stdout = old // Restore original stdout
+			p.Kill()
+		}
+		close(ch)
+	}()
+
 	// Redirect stdout to /dev/null
-	devNull, _ := os.Open(os.DevNull)
-	os.Stdout = devNull
+	// devNull, _ := os.Open(os.DevNull)
+	// os.Stdout = devNull
 
 	if _, err := p.Run(); err != nil {
 		return err

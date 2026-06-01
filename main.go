@@ -4,8 +4,8 @@ import (
 	"flag"
 	"log"
 
-	"go.sakib.dev/le/server"
-	"go.sakib.dev/le/tui"
+	"go.sakib.dev/le/pkg/server"
+	"go.sakib.dev/le/pkg/tui"
 )
 
 func main() {
@@ -14,8 +14,7 @@ func main() {
 
 	flag.Parse()
 
-	eventCh := make(chan server.ServerEventName, 10)
-	srvr, err := server.NewServer(*dir, *port, eventCh)
+	srvr, err := server.NewServer(*dir, *port)
 
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
@@ -27,7 +26,7 @@ func main() {
 		}
 	}()
 
-	err = tui.Start(srvr, eventCh)
+	err = tui.Start(srvr)
 	if err != nil {
 		log.Fatalf("Failed to start TUI: %v", err)
 	}

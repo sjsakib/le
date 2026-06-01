@@ -1,6 +1,9 @@
 package server
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type ServerEventName string
 
@@ -11,9 +14,24 @@ const (
 	EvNameAddrUpdated      ServerEventName = "addr_updated"
 )
 
+type Client struct {
+	IP        string
+	Host      string
+	UserAgent string
+}
+
+func (c *Client) GetID() string {
+	return fmt.Sprintf("%s-%s", c.IP, c.UserAgent)
+}
+
 type Range struct {
 	Start int64
 	End   int64
+}
+
+type EventAddrUpdated struct {
+	Addr string
+	Time time.Time
 }
 
 type EventDownloadStart struct {
@@ -40,6 +58,9 @@ type ServerEvent interface {
 	EventName() ServerEventName
 }
 
+func (e EventAddrUpdated) EventName() ServerEventName {
+	return EvNameAddrUpdated
+}
 func (e EventConnClose) EventName() ServerEventName {
 	return EvNameConnClose
 }
