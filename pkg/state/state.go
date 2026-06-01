@@ -62,6 +62,7 @@ func (s *ServerState) HandleEvent(event server.ServerEvent) {
 	switch event := event.(type) {
 	case *server.EventAddrUpdated:
 		s.Addr = &event.Addr
+		s.Dir = event.Dir
 	case *server.EventConnClose:
 		s.HandleConnClose(event)
 	case *server.EventDownloadProgress:

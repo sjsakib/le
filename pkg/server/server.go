@@ -90,7 +90,7 @@ func (s *Server) PrintUrl() {
 	slog.Info("Serving files from", "directory", s.Dir)
 	slog.Info("File server is running on", "url", url)
 
-	s.publish(&EventAddrUpdated{Addr: url, Time: time.Now()})
+	s.publish(&EventAddrUpdated{Addr: url, Dir: s.Dir, Time: time.Now()})
 
 }
 

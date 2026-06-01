@@ -31,6 +31,7 @@ type Range struct {
 
 type EventAddrUpdated struct {
 	Addr string
+	Dir  string
 	Time time.Time
 }
 
