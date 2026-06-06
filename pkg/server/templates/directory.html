@@ -32,6 +32,13 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
+        .directory-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
         h1 {
             font-size: 24px;
             font-weight: 500;
@@ -39,6 +46,59 @@
             display: flex;
             align-items: center;
             gap: 10px;
+        }
+
+        .directory-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            flex-shrink: 0;
+        }
+
+        .directory-actions a {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            min-height: 38px;
+            border: 1px solid #d6dee6;
+            border-radius: 6px;
+            padding: 5px 10px;
+            color: #2c3e50;
+            text-decoration: none;
+            background-color: #fff;
+        }
+
+        .directory-actions a:hover {
+            background-color: #f4f7fa;
+            border-color: #b9c7d3;
+        }
+
+        .action-icon {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2;
+            flex-shrink: 0;
+        }
+
+        .action-text {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            line-height: 1.2;
+        }
+
+        .action-title {
+            font-size: 12px;
+        }
+
+        .action-help {
+            color: #64748b;
+            font-size: 10px;
         }
 
         .breadcrumb {
@@ -296,6 +356,14 @@
                 font-size: 20px;
             }
 
+            .directory-header {
+                flex-direction: column;
+            }
+
+            .directory-actions {
+                justify-content: flex-start;
+            }
+
             .file-modified {
                 min-width: auto;
                 font-size: 12px;
@@ -333,12 +401,38 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>
-                <svg class="file-icon icon-folder" viewBox="0 0 24 24">
-                    <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/>
-                </svg>
-                Index of {{.Path}}
-            </h1>
+            <div class="directory-header">
+                <h1>
+                    <svg class="file-icon icon-folder" viewBox="0 0 24 24">
+                        <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    Index of {{.Path}}
+                </h1>
+                <div class="directory-actions">
+                    <a href="?archive=true&compressed=true" title="Not resumable">
+                        <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <path d="M7 10l5 5 5-5"/>
+                            <path d="M12 15V3"/>
+                        </svg>
+                        <span class="action-text">
+                            <span class="action-title">ZIP</span>
+                            <span class="action-help">Not resumable</span>
+                        </span>
+                    </a>
+                    <a href="?archive=true&compressed=false" title="Resumable">
+                        <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <path d="M7 10l5 5 5-5"/>
+                            <path d="M12 15V3"/>
+                        </svg>
+                        <span class="action-text">
+                            <span class="action-title">Uncompressed ZIP</span>
+                            <span class="action-help">Resumable</span>
+                        </span>
+                    </a>
+                </div>
+            </div>
             <div class="breadcrumb">
                 {{range $i, $crumb := .Breadcrumbs}}
                     {{if $i}} / {{end}}

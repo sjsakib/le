@@ -14,6 +14,7 @@ import (
 	"go.sakib.dev/le/logger"
 	"go.sakib.dev/le/pkg/nanoid"
 	"go.sakib.dev/le/pkg/utils"
+	"go.sakib.dev/le/pkg/zip"
 )
 
 const downloadProgressLogInterval = 500 * time.Millisecond // Log download progress every 500 milliseconds
@@ -42,12 +43,14 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("Failed to get client IP", "error", err)
 		clientIP = "unknown"
 	}
+	reqHelper.clientIP = clientIP
 
 	clientHost, err := utils.GetClientHostname(r)
 	if err != nil {
 		slog.Warn("Failed to get client hostname", "error", err)
 		clientHost = "unknown"
 	}
+	reqHelper.clientHost = clientHost
 
 	slog.InfoContext(reqHelper.ctx, "REQUEST",
 		"clientIP", clientIP,
@@ -64,6 +67,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	absPath, err := utils.SecureJoin(string(h.root), r.URL.Path)
+	reqHelper.absPath = absPath
 
 	slog.Debug("Secure Join", "path", absPath, "root", string(h.root), "path", r.URL.Path, "error", err)
 
@@ -85,7 +89,9 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if info.IsDir() {
+	isArchive := r.URL.Query().Get("archive") == "true"
+
+	if info.IsDir() && !isArchive {
 		// check if request is coming from a browser
 		acceptHeader := r.Header.Get("Accept")
 		isBrowser := strings.Contains(acceptHeader, "text/html")
@@ -100,68 +106,90 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := os.Open(absPath)
-	if err != nil {
-		reqHelper.internalServerError(err)
-		return
-	}
-	defer file.Close()
-	var transferStart = time.Now()
+	var source downloadSource
 
-	startByte, contentLength, reader, err := reqHelper.handleRange(file, info)
-	if err != nil {
-		if errors.Is(err, ErrInvalidRangeHeader) {
-			reqHelper.error("Invalid Range", err, http.StatusRequestedRangeNotSatisfiable)
+	if isArchive && info.IsDir() {
+		source = zip.New(absPath, r.URL.Query().Get("compressed") == "true")
+	} else {
+		file, err := os.Open(absPath)
+		if err != nil {
+			reqHelper.internalServerError(err)
 			return
 		}
-		reqHelper.internalServerError(err)
+		defer file.Close()
+
+		source = &fileSource{file, info}
+
+	}
+
+	reqHelper.serveSource(source)
+}
+
+func (rh *reqHelper) serveSource(source downloadSource) {
+	var transferStart = time.Now()
+	startByte, contentLength, reader, err := rh.handleRange(source)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRangeHeader) {
+			rh.error("Invalid Range", err, http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		rh.internalServerError(err)
 		return
 
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
-	w.Header().Set("ETag", fmt.Sprintf(`"%x-%x"`, info.ModTime().Unix(), info.Size()))
+	rh.w.Header().Set("Content-Type", "application/octet-stream")
+	rh.w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", source.TargetName()))
 
-	fileDisplayPath := utils.ReplaceHome(absPath)
+	resumable, isResumable := source.(resumableSource)
+
+	var fileSize int64 = -1
+	if isResumable {
+		fileSize = resumable.Size()
+		rh.w.Header().Set("Accept-Ranges", "bytes")
+		rh.w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+		rh.w.Header().Set("ETag", resumable.Etag())
+	}
+
+	fileDisplayPath := utils.ReplaceHome(rh.absPath)
 	var totalSent int64 = 0
 	var totalMBSent float64
 	buf := make([]byte, 1024*1024) // 1MB buffer
 	var lastReportedSent int64 = 0
 	var lastReportedTime = time.Now()
-	reqHelper.publishDownloadStart(fileDisplayPath, info.Size(), startByte, startByte+contentLength-1, clientIP, clientHost)
-	slog.Info("Starting download", "file", fileDisplayPath, "totalSize", info.Size(), "rangeStart", startByte, "contentLength", contentLength, "clientIP", clientIP, "clientHost", clientHost)
+
+	rh.publishDownloadStart(fileDisplayPath, fileSize, startByte, startByte+contentLength-1)
+	slog.Info("Starting download", "file", fileDisplayPath, "totalSize", fileSize, "rangeStart", startByte, "contentLength", contentLength, "clientIP", rh.clientIP, "clientHost", rh.clientHost)
 	for {
-		n, readErr := reader.Read(buf)
-		if readErr != nil {
-			if readErr != io.EOF {
-				slog.ErrorContext(reqHelper.ctx, "Error reading file", "error", readErr, "file", fileDisplayPath)
+		n, err := reader.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				slog.ErrorContext(rh.ctx, "Error reading file", "error", err, "file", fileDisplayPath)
 			}
 			break
 		}
 
 		if n > 0 {
-			_, writeErr := w.Write(buf[:n])
-			if writeErr != nil {
-				slog.ErrorContext(reqHelper.ctx, "Error writing response", "error", writeErr, "file", fileDisplayPath)
+			_, err := rh.w.Write(buf[:n])
+			if err != nil {
+				slog.ErrorContext(rh.ctx, "Error writing response", "error", err, "file", fileDisplayPath)
 				break
 			}
 			totalSent += int64(n)
 
-			reqHelper.publishDownloadProgress(int64(n))
+			rh.publishDownloadProgress(int64(n))
 
 			if time.Since(lastReportedTime) > downloadProgressLogInterval {
 				totalMBSent = float64(totalSent) / 1024 / 1024
 
 				mbps := float64(totalSent-lastReportedSent) / 1024 / 1024 / time.Since(lastReportedTime).Seconds()
 
-				progress := float64(totalSent) / float64(info.Size()) * 100
+				progress := float64(totalSent) / float64(fileSize) * 100
 
 				msg := fmt.Sprintf("%7.2f / %7.2f MB sent | %2.2f%% | %5.2f MB/s",
 					totalMBSent, float64(contentLength)/1024/1024, progress, mbps)
 
-				slog.InfoContext(reqHelper.ctx, msg, "file", fileDisplayPath)
+				slog.InfoContext(rh.ctx, msg, "file", fileDisplayPath)
 
 				lastReportedSent = totalSent
 				lastReportedTime = time.Now()
@@ -170,14 +198,17 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	slog.InfoContext(reqHelper.ctx, "TRANSFER COMPLETE", "file", fileDisplayPath, "totalSent_mb", totalMBSent, "duration", time.Since(transferStart))
+	slog.InfoContext(rh.ctx, "TRANSFER COMPLETE", "file", fileDisplayPath, "totalSent_mb", totalMBSent, "duration", time.Since(transferStart))
 }
 
 type reqHelper struct {
-	w   http.ResponseWriter
-	r   *http.Request
-	ctx context.Context
-	ch  chan<- ServerEvent
+	w          http.ResponseWriter
+	r          *http.Request
+	ctx        context.Context
+	ch         chan<- ServerEvent
+	absPath    string
+	clientIP   string
+	clientHost string
 }
 
 func newReqHelper(w http.ResponseWriter, r *http.Request, ch chan<- ServerEvent) *reqHelper {
@@ -211,7 +242,7 @@ func (h *reqHelper) publishDownloadProgress(sent int64) {
 	}
 }
 
-func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64, rangeStart, rangeEnd int64, clientIP string, clientHost string) {
+func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64, rangeStart, rangeEnd int64) {
 	h.ch <- &EventDownloadStart{
 		ConnID:          h.ctx.Value(utils.RequestIDKey).(string),
 		FileDisplayPath: fileDisplayPath,
@@ -219,8 +250,8 @@ func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64,
 		TotalSize:       fileSize,
 		Range:           Range{Start: rangeStart, End: rangeEnd},
 		Client: &Client{
-			IP:        clientIP,
-			Host:      clientHost,
+			IP:        h.clientIP,
+			Host:      h.clientHost,
 			UserAgent: h.r.UserAgent(),
 		},
 	}
@@ -228,31 +259,39 @@ func (h *reqHelper) publishDownloadStart(fileDisplayPath string, fileSize int64,
 
 var ErrInvalidRangeHeader = errors.New("invalid range header")
 
-func (h *reqHelper) handleRange(file *os.File, fileInfo os.FileInfo) (startByte int64, contentLength int64, reader io.Reader, err error) {
+func (h *reqHelper) handleRange(source downloadSource) (startByte int64, contentLength int64, reader io.Reader, err error) {
 	rng := h.r.Header.Get("Range")
-	contentLength = fileInfo.Size()
-	reader = file
-	if rng != "" {
-		hStartByte, endByte, parseErr := utils.ParseRangeHeader(rng, fileInfo.Size())
-		if parseErr != nil {
-			return 0, 0, nil, ErrInvalidRangeHeader
-		}
-		startByte = hStartByte
-
-		if _, err := file.Seek(startByte, io.SeekStart); err != nil {
-			return 0, 0, nil, err
-		}
-
-		contentLength = endByte - startByte + 1
-		reader = io.LimitReader(file, contentLength)
-
-		h.w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", startByte, endByte, fileInfo.Size()))
-		h.w.WriteHeader(http.StatusPartialContent)
-
-		slog.InfoContext(h.ctx, "PARTIAL", "path", h.r.URL.Path, "start", startByte, "end", endByte, "total", contentLength, logger.StatusCodeKey, http.StatusPartialContent)
-	} else {
+	contentLength = -1
+	reader = source
+	if rng == "" {
 		slog.InfoContext(h.ctx, "OK", "path", h.r.URL.Path, "size", contentLength, logger.StatusCodeKey, http.StatusOK)
+		return startByte, contentLength, reader, nil
 	}
+
+	resumableSource, ok := source.(resumableSource)
+	if !ok {
+		return 0, 0, nil, ErrInvalidRangeHeader
+	}
+
+	contentLength = resumableSource.Size()
+
+	hStartByte, endByte, parseErr := utils.ParseRangeHeader(rng, contentLength)
+	if parseErr != nil {
+		return 0, 0, nil, ErrInvalidRangeHeader
+	}
+	startByte = hStartByte
+
+	if _, err := resumableSource.Seek(startByte, io.SeekStart); err != nil {
+		return 0, 0, nil, err
+	}
+
+	contentLength = endByte - startByte + 1
+	reader = io.LimitReader(reader, contentLength)
+
+	h.w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", startByte, endByte, resumableSource.Size()))
+	h.w.WriteHeader(http.StatusPartialContent)
+
+	slog.InfoContext(h.ctx, "PARTIAL", "path", h.r.URL.Path, "start", startByte, "end", endByte, "total", contentLength, logger.StatusCodeKey, http.StatusPartialContent)
 
 	return startByte, contentLength, reader, nil
 }

@@ -328,12 +328,12 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		breadcrumbs = append(breadcrumbs, Breadcrumb{Name: "Root", Path: "/"})
 
-		currentPath := ""
+		var currentPath strings.Builder
 		for i, part := range parts {
-			currentPath += "/" + part
+			currentPath.WriteString("/" + part)
 			breadcrumbs = append(breadcrumbs, Breadcrumb{
 				Name:   part,
-				Path:   currentPath,
+				Path:   currentPath.String(),
 				IsLast: i == len(parts)-1,
 			})
 		}
@@ -366,4 +366,8 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 	if err := dirTemplate.Execute(w, data); err != nil {
 		http.Error(w, "Error rendering template", http.StatusInternalServerError)
 	}
+}
+
+func (h *handler) serveDirectoryAsArchive(w http.ResponseWriter, r *http.Request, absPath string) {
+
 }
