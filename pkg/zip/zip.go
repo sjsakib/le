@@ -1,7 +1,6 @@
 package zip
 
 import (
-	"bytes"
 	"encoding/binary"
 	"hash/crc32"
 	"io"
@@ -18,11 +17,18 @@ type Archive struct {
 }
 
 func New(path string, shouldCompress bool) *Archive {
-	buf := bytes.Buffer{}
+	pr, pw := io.Pipe()
 
-	a := Archive{path: path, reader: &buf, shouldCompress: shouldCompress}
+	a := Archive{path: path, reader: pr, shouldCompress: shouldCompress}
 
-	a.write(path, &buf)
+	go func() {
+		defer pw.Close()
+		err := a.write(path, pw)
+		if err != nil {
+			pw.CloseWithError(err)
+		}
+	}()
+
 	return &a
 }
 

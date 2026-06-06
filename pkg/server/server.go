@@ -20,7 +20,7 @@ type Server struct {
 	server *http.Server
 
 	subLock     sync.RWMutex
-	subscribers []chan<- ServerEvent
+	subscribers []chan ServerEvent
 }
 
 func NewServer(dir string, port int) (*Server, error) {
@@ -43,6 +43,17 @@ func (s *Server) Subscribe(ch chan ServerEvent) {
 	s.subLock.Lock()
 	defer s.subLock.Unlock()
 	s.subscribers = append(s.subscribers, ch)
+}
+
+func (s *Server) Unsubscribe(ch chan ServerEvent) {
+	s.subLock.Lock()
+	defer s.subLock.Unlock()
+	for i, subscriber := range s.subscribers {
+		if subscriber == ch {
+			s.subscribers = append(s.subscribers[:i], s.subscribers[i+1:]...)
+			return
+		}
+	}
 }
 
 func (s *Server) Start() error {
