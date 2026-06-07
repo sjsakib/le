@@ -12,18 +12,24 @@ import (
 
 type Archive struct {
 	path           string
-	reader         io.Reader
+	r              io.Reader
+	w              *CountingWriter
 	shouldCompress bool
 }
 
 func New(path string, shouldCompress bool) *Archive {
 	pr, pw := io.Pipe()
 
-	a := Archive{path: path, reader: pr, shouldCompress: shouldCompress}
+	a := Archive{
+		path:           path,
+		r:              pr,
+		w:              &CountingWriter{W: pw, N: 0},
+		shouldCompress: shouldCompress,
+	}
 
 	go func() {
 		defer pw.Close()
-		err := a.write(path, pw)
+		err := a.write()
 		if err != nil {
 			pw.CloseWithError(err)
 		}
@@ -32,23 +38,12 @@ func New(path string, shouldCompress bool) *Archive {
 	return &a
 }
 
-func (v *Archive) Read(p []byte) (int, error) {
-	return v.reader.Read(p)
+func (a *Archive) Read(p []byte) (int, error) {
+	return a.r.Read(p)
 }
 
-func (v *Archive) TargetName() string {
-	return filepath.Base(v.path) + ".zip"
-}
-
-type CountingWriter struct {
-	W io.Writer
-	N uint64
-}
-
-func (c *CountingWriter) Write(p []byte) (int, error) {
-	n, err := c.W.Write(p)
-	c.N += uint64(n)
-	return n, err
+func (a *Archive) TargetName() string {
+	return filepath.Base(a.path) + ".zip"
 }
 
 type centralDirectoryEntry struct {
@@ -60,28 +55,31 @@ type centralDirectoryEntry struct {
 	modTime           time.Time
 }
 
-func (v *Archive) write(dir string, w io.Writer) error {
-	cw := &CountingWriter{W: w}
+func (a *Archive) writeLE(num any) error {
+	return binary.Write(a.w, binary.LittleEndian, num)
+}
+
+func (a *Archive) write() error {
 	entries := make([]centralDirectoryEntry, 0)
 
-	dirLen := len(dir)
+	dirLen := len(a.path)
 
 	centralDirOffset := uint64(0)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		offset := cw.N
+	err := filepath.WalkDir(a.path, func(path string, d fs.DirEntry, err error) error {
+		offset := a.w.N
 		if d.IsDir() {
 			return nil
 		}
 
-		cw.Write([]byte{'P', 'K', 0x03, 0x04})
+		a.writeLE(SigLocalHeader)
 
-		binary.Write(cw, binary.LittleEndian, uint16(20))
+		a.writeLE(VerMadeBy)
 
 		// flag bit set to 3
-		binary.Write(cw, binary.LittleEndian, uint16(0x0008))
+		a.writeLE(FlagInfoComesLater)
 
 		// compression method set to 0 (store)
-		binary.Write(cw, binary.LittleEndian, uint16(0))
+		a.writeLE(MethodStore)
 
 		info, err := d.Info()
 		if err != nil {
@@ -90,21 +88,21 @@ func (v *Archive) write(dir string, w io.Writer) error {
 
 		// mod time date
 		dosTime, dosDate := dosDateTime(info.ModTime())
-		binary.Write(cw, binary.LittleEndian, dosTime)
-		binary.Write(cw, binary.LittleEndian, dosDate)
+		a.writeLE(dosTime)
+		a.writeLE(dosDate)
 
 		// crc + size uknown
-		binary.Write(cw, binary.LittleEndian, uint32(0))
-		binary.Write(cw, binary.LittleEndian, uint32(0))
-		binary.Write(cw, binary.LittleEndian, uint32(0))
+		a.writeLE(uint32(0))
+		a.writeLE(uint32(0))
+		a.writeLE(uint32(0))
 
 		// file name
 		name := path[dirLen:]
 		nameLen := len(name)
-		binary.Write(cw, binary.LittleEndian, uint16(nameLen))
-		binary.Write(cw, binary.LittleEndian, uint16(0))
+		a.writeLE(uint16(nameLen))
+		a.writeLE(uint16(0))
 
-		_, err = io.WriteString(cw, name)
+		_, err = io.WriteString(a.w, name)
 		if err != nil {
 			return err
 		}
@@ -116,22 +114,22 @@ func (v *Archive) write(dir string, w io.Writer) error {
 		defer file.Close()
 
 		crc := crc32.NewIEEE()
-		n, err := io.Copy(io.MultiWriter(crc, cw), file)
+		fileSize, err := io.Copy(io.MultiWriter(crc, a.w), file)
 		if err != nil {
 			return err
 		}
 
-		binary.Write(cw, binary.LittleEndian, uint32(0x08074b50))
+		a.writeLE(SigFileDescriptor)
 
-		binary.Write(cw, binary.LittleEndian, crc.Sum32())
-		binary.Write(cw, binary.LittleEndian, uint32(n))
-		binary.Write(cw, binary.LittleEndian, uint32(n))
+		a.writeLE(crc.Sum32())
+		a.writeLE(uint32(fileSize))
+		a.writeLE(uint32(fileSize))
 
 		entries = append(entries, centralDirectoryEntry{
-			name:              path,
+			name:              name,
 			crc32:             crc.Sum32(),
-			compressedSize:    uint32(n),
-			uncompressedSize:  uint32(n),
+			compressedSize:    uint32(fileSize),
+			uncompressedSize:  uint32(fileSize),
 			localHeaderOffset: uint32(offset),
 			modTime:           info.ModTime(),
 		})
@@ -143,57 +141,55 @@ func (v *Archive) write(dir string, w io.Writer) error {
 		return err
 	}
 
-	centralDirOffset = uint64(cw.N)
+	centralDirOffset = uint64(a.w.N)
 	for _, e := range entries {
-		_, err := cw.Write([]byte{'P', 'K', 0x01, 0x02})
+		err := a.writeLE(SigCDHeader)
 		if err != nil {
 			return err
 		}
 
-		binary.Write(cw, binary.LittleEndian, uint16(20)) // v made by
-		binary.Write(cw, binary.LittleEndian, uint16(20)) // v required
+		a.writeLE(VerMadeBy)
+		a.writeLE(VerRequired)
 
-		binary.Write(w, binary.LittleEndian, uint16(0x0008)) // match local
+		a.writeLE(FlagInfoComesLater) // match local
 
-		binary.Write(cw, binary.LittleEndian, uint16(0)) // stored
+		a.writeLE(MethodStore)
 
 		dosTime, dosDate := dosDateTime(e.modTime)
-		binary.Write(cw, binary.LittleEndian, dosTime)
-		binary.Write(cw, binary.LittleEndian, dosDate)
+		a.writeLE(dosTime)
+		a.writeLE(dosDate)
 
-		binary.Write(cw, binary.LittleEndian, e.crc32)
-		binary.Write(cw, binary.LittleEndian, e.compressedSize)
-		binary.Write(cw, binary.LittleEndian, e.uncompressedSize)
+		a.writeLE(e.crc32)
+		a.writeLE(e.compressedSize)
+		a.writeLE(e.uncompressedSize)
 
-		binary.Write(cw, binary.LittleEndian, uint16(len(e.name)))
-		binary.Write(cw, binary.LittleEndian, uint16(0))
-		binary.Write(cw, binary.LittleEndian, uint16(0))
+		a.writeLE(uint16(len(e.name)))
+		a.writeLE(uint16(0))
+		a.writeLE(uint16(0))
 
-		binary.Write(cw, binary.LittleEndian, uint16(0)) // disk start
-		binary.Write(cw, binary.LittleEndian, uint16(0)) // internal attrs
-		binary.Write(cw, binary.LittleEndian, uint32(0)) // external attrs
+		a.writeLE(uint16(0)) // disk start
+		a.writeLE(uint16(0)) // internal attrs
+		a.writeLE(uint32(0)) // external attrs
 
-		binary.Write(cw, binary.LittleEndian, e.localHeaderOffset)
+		a.writeLE(e.localHeaderOffset)
 
-		io.WriteString(cw, e.name)
+		io.WriteString(a.w, e.name)
 
 	}
 
-	binary.Write(cw, binary.LittleEndian, uint16(0))
+	centralDirSize := uint64(a.w.N - centralDirOffset)
 
-	centralDirSize := uint64(cw.N - centralDirOffset)
+	a.writeLE(SigEOCD)
 
-	cw.Write([]byte{'P', 'K', 0x05, 0x06})
+	a.writeLE(uint16(0))
+	a.writeLE(uint16(0))
 
-	binary.Write(cw, binary.LittleEndian, uint16(0))
-	binary.Write(cw, binary.LittleEndian, uint16(0))
+	a.writeLE(uint16(len(entries)))
+	a.writeLE(uint16(len(entries)))
 
-	binary.Write(cw, binary.LittleEndian, uint32(len(entries)))
-	binary.Write(cw, binary.LittleEndian, uint32(len(entries)))
+	a.writeLE(uint32(centralDirSize))
+	a.writeLE(uint32(centralDirOffset))
 
-	binary.Write(cw, binary.LittleEndian, uint32(centralDirSize))
-	binary.Write(cw, binary.LittleEndian, uint32(centralDirOffset))
-
-	binary.Write(cw, binary.LittleEndian, uint16(0))
+	a.writeLE(uint16(0))
 	return nil
 }
