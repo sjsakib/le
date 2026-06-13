@@ -24,8 +24,12 @@ A file server with primary purpose of serving and downloading files in the local
 - [ ] Fix tui for unknown file sizes
 - [ ] Handle symlinks when archiving files
 - [ ] Support static sites via `index.html`
-- [ ] Support SPA
+- [ ] Support SPA via flag
 - [ ] Configrable log/log file
+- [ ] Support tar
+- [ ] Support basic auth
+- [ ] Support encrypted archives
+- [ ] Allow upload via flag
 
 ## Ideas
 
