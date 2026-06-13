@@ -16,8 +16,8 @@ A file server with primary purpose of serving and downloading files in the local
 ## Next versions
 - [x] Show the progress and QR code with tui
 - [x] Support basic dowloading directory as archive
-- [ ] Archive without loading all files into memory
-- [ ] Support resumable archive
+- [x] Archive without loading all files into memory
+- [x] Support resumable archive
 - [ ] Support non resumable compressed archive
 - [ ] Fix tui for unknown file sizes
 

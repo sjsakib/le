@@ -1,43 +1,49 @@
 # le
-`le` is a simple file server written in Go with
-* resume support
-* local address QR code
-* download logs with progress
-* clean browser UI for directory browsing
 
-## Usage
+`le` is a simple local-network file server written in Go. Start it in a directory, scan the QR code, and download files from another device on the same network.
+
+## Features
+
+- Serve any local directory over HTTP.
+- Show the local network address and QR code in a terminal TUI.
+- Download directories as ZIP archives, including a resumable uncompressed ZIP option. ZIP downloads are streamed directly, so `le` __does not__ create a temporary archive on disk or load the whole archive into memory.
+- Track active downloads and transfer progress in the terminal.
+- Resume interrupted file downloads with HTTP range requests.
+- Browse folders in a clean, responsive browser UI.
+- Keep command-line access simple for tools like `curl` and `wget`.
+
+## Install
+
+Install the `le` binary permanently with:
+
+```sh
+go install go.sakib.dev/le@latest
+```
+
+Make sure your Go binary directory is on `PATH`. It is usually:
+
+```sh
+$(go env GOPATH)/bin
+```
+
+After that, run `le` from any directory:
+
+```sh
+le
+```
+
+## Quick start
+
+Run `le` for the current directory:
 
 ```sh
 go run go.sakib.dev/le@latest
 ```
 
-## Optional parameters
-- `--dir`: Directory to serve files from (default: current directory)
-- `--port`: Port to run the server on (default: 8080)
+Open the URL shown in the terminal, or scan the QR code from another device on the same network.
 
-## Browser UI
-When accessed from a web browser, `le` serves a clean, responsive interface featuring:
-- File and folder icons
-- Human-readable file sizes
-- Relative timestamps
-- Breadcrumb navigation
-- Mobile-friendly design
 
-Command-line tools like `curl` or `wget` still get the simple directory listing for easy parsing.
+## Options
 
-Browser UI Preview:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 📁 Index of /test_browser                                   │
-│ ─────────────────────────────────────────────────────────── │
-│ Root / test_browser                                         │
-│                                                             │
-│ 📁 code/                              2 minutes ago         │
-│ 📁 documents/                         2 minutes ago         │
-│ 📁 images/                            2 minutes ago         │
-│ 📄 data.json              18 B        2 minutes ago         │
-│                                                             │
-│                    Served by le                             │
-└─────────────────────────────────────────────────────────────┘
-```
+- `--dir`: Directory to serve files from. Defaults to the current directory.
+- `--port`: Port to run the server on. Defaults to `8080`.
