@@ -41,17 +41,7 @@ func New(path string, shouldCompress bool) *UncompressedArchive {
 }
 
 func (a *UncompressedArchive) Read(p []byte) (int, error) {
-	// a.startOnce.Do(func() {
-	// 	go func() {
-	// 		defer a.w.W.Close()
-	// 		err := a.write()
-	// 		if err != nil {
-	// 			a.w.W.CloseWithError(err)
-	// 		}
-	// 	}()
-	// })
-	//
-	if a.w.Offset == 0 {
+	a.startOnce.Do(func() {
 		go func() {
 			defer a.w.W.Close()
 			err := a.write()
@@ -59,7 +49,7 @@ func (a *UncompressedArchive) Read(p []byte) (int, error) {
 				a.w.W.CloseWithError(err)
 			}
 		}()
-	}
+	})
 
 	return a.r.Read(p)
 }
