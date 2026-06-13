@@ -74,6 +74,7 @@ func ParseRangeHeader(header string, size int64) (start, end int64, err error) {
 	}
 
 	if matches[1] != "" {
+		// the error can be ignored, as it comes from regex match
 		start, _ = strconv.ParseInt(matches[1], 10, 64)
 	}
 

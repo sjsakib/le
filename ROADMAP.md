@@ -18,8 +18,14 @@ A file server with primary purpose of serving and downloading files in the local
 - [x] Support basic dowloading directory as archive
 - [x] Archive without loading all files into memory
 - [x] Support resumable archive
+- [ ] Support If-Range header
+- [ ] Support HEAD requests
 - [ ] Support non resumable compressed archive
 - [ ] Fix tui for unknown file sizes
+- [ ] Handle symlinks when archiving files
+- [ ] Support static sites via `index.html`
+- [ ] Support SPA
+- [ ] Configrable log/log file
 
 ## Ideas
 

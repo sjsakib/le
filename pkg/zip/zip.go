@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"io/fs"
@@ -77,7 +78,7 @@ func (a *UncompressedArchive) ETag() string {
 		}
 	}
 
-	return a.summary.ETag
+	return fmt.Sprintf(`"%s"`, a.summary.ETag)
 }
 
 func (a *UncompressedArchive) SeekForward(offset int64) (int64, error) {
