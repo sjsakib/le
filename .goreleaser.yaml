@@ -41,6 +41,17 @@ archives:
       - goos: windows
         formats: [zip]
 
+brews:
+  - name: le
+    repository:
+      owner: sjsakib
+      name: homebrew-le
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sjsakib/le"
+    description: "Fast file sharing CLI"
+    license: "MIT"
+
 changelog:
   sort: asc
   filters:
