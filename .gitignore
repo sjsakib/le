@@ -1,3 +1,5 @@
 .log
 le
 .le.log
+# Added by goreleaser init:
+dist/
