@@ -49,9 +49,9 @@ func (a *Archive) TargetName() string {
 type centralDirectoryEntry struct {
 	name              string
 	crc32             uint32
-	compressedSize    uint32
-	uncompressedSize  uint32
-	localHeaderOffset uint32
+	compressedSize    uint64
+	uncompressedSize  uint64
+	localHeaderOffset uint64
 	modTime           time.Time
 }
 
@@ -73,7 +73,7 @@ func (a *Archive) write() error {
 
 		a.writeLE(SigLocalHeader)
 
-		a.writeLE(VerMadeBy)
+		a.writeLE(ZipVer45)
 
 		// flag bit set to 3
 		a.writeLE(FlagInfoComesLater)
@@ -93,19 +93,26 @@ func (a *Archive) write() error {
 
 		// crc + size uknown
 		a.writeLE(uint32(0))
-		a.writeLE(uint32(0))
-		a.writeLE(uint32(0))
+		a.writeLE(Max32)
+		a.writeLE(Max32)
 
 		// file name
-		name := path[dirLen:]
+		name := path[dirLen+1:]
 		nameLen := len(name)
 		a.writeLE(uint16(nameLen))
-		a.writeLE(uint16(0))
+		a.writeLE(LocalExtraFieldSize) // extra field length
 
 		_, err = io.WriteString(a.w, name)
 		if err != nil {
 			return err
 		}
+
+		// extra field
+		a.writeLE(Zip64ExtraFieldID)
+		a.writeLE(LocalZip64ExtraFieldSize)
+		a.writeLE(uint64(0))
+		a.writeLE(uint64(0))
+
 
 		file, err := os.Open(path)
 		if err != nil {
@@ -122,15 +129,15 @@ func (a *Archive) write() error {
 		a.writeLE(SigFileDescriptor)
 
 		a.writeLE(crc.Sum32())
-		a.writeLE(uint32(fileSize))
-		a.writeLE(uint32(fileSize))
+		a.writeLE(uint64(fileSize))
+		a.writeLE(uint64(fileSize))
 
 		entries = append(entries, centralDirectoryEntry{
 			name:              name,
 			crc32:             crc.Sum32(),
-			compressedSize:    uint32(fileSize),
-			uncompressedSize:  uint32(fileSize),
-			localHeaderOffset: uint32(offset),
+			compressedSize:    uint64(fileSize),
+			uncompressedSize:  uint64(fileSize),
+			localHeaderOffset: offset,
 			modTime:           info.ModTime(),
 		})
 
@@ -148,8 +155,8 @@ func (a *Archive) write() error {
 			return err
 		}
 
-		a.writeLE(VerMadeBy)
-		a.writeLE(VerRequired)
+		a.writeLE(ZipVer45) // made by
+		a.writeLE(ZipVer45) // required
 
 		a.writeLE(FlagInfoComesLater) // match local
 
@@ -160,35 +167,65 @@ func (a *Archive) write() error {
 		a.writeLE(dosDate)
 
 		a.writeLE(e.crc32)
-		a.writeLE(e.compressedSize)
-		a.writeLE(e.uncompressedSize)
+		a.writeLE(Max32)
+		a.writeLE(Max32)
 
 		a.writeLE(uint16(len(e.name)))
-		a.writeLE(uint16(0))
+		a.writeLE(Zip64ExtraFieldSize) // extra field length
 		a.writeLE(uint16(0))
 
 		a.writeLE(uint16(0)) // disk start
 		a.writeLE(uint16(0)) // internal attrs
 		a.writeLE(uint32(0)) // external attrs
 
-		a.writeLE(e.localHeaderOffset)
+		a.writeLE(Max32) // local header offset
 
 		io.WriteString(a.w, e.name)
+
+		// extra field
+		a.writeLE(Zip64ExtraFieldID)
+		a.writeLE(ExtraFieldSize)
+
+		a.writeLE(e.compressedSize)
+		a.writeLE(e.uncompressedSize)
+		a.writeLE(e.localHeaderOffset)
 
 	}
 
 	centralDirSize := uint64(a.w.N - centralDirOffset)
 
+	zip64EOCDOffset := a.w.N
+
+	a.writeLE(SigZip64EOCD)
+	a.writeLE(uint64(44)) // size of zip64 EOCD
+
+	a.writeLE(ZipVer45)
+	a.writeLE(ZipVer45)
+
+	a.writeLE(uint32(0))
+	a.writeLE(uint32(0))
+
+	a.writeLE(uint64(len(entries)))
+	a.writeLE(uint64(len(entries)))
+
+	a.writeLE(uint64(centralDirSize))
+	a.writeLE(uint64(centralDirOffset))
+
+	a.writeLE(SigZip64EOCDLocator)
+	a.writeLE(uint32(0)) // disk index
+	a.writeLE(uint64(zip64EOCDOffset))
+	a.writeLE(uint32(1)) // total disk count
+
+	// classic EOCD
 	a.writeLE(SigEOCD)
-
 	a.writeLE(uint16(0))
 	a.writeLE(uint16(0))
 
-	a.writeLE(uint16(len(entries)))
-	a.writeLE(uint16(len(entries)))
+	a.writeLE(Max16)
+	a.writeLE(Max16)
 
-	a.writeLE(uint32(centralDirSize))
-	a.writeLE(uint32(centralDirOffset))
+	a.writeLE(Max32)
+	a.writeLE(Max32)
 
 	a.writeLE(uint16(0))
 	return nil
