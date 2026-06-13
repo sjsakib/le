@@ -1,49 +1,99 @@
 package zip
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"hash/crc32"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
-type Archive struct {
+type Summary struct {
+	Size int64
+	ETag string
+}
+
+type UncompressedArchive struct {
 	path           string
 	r              io.Reader
 	w              *CountingWriter
+	startOnce      sync.Once
+	summary        *Summary
 	shouldCompress bool
 }
 
-func New(path string, shouldCompress bool) *Archive {
+func New(path string, shouldCompress bool) *UncompressedArchive {
 	pr, pw := io.Pipe()
 
-	a := Archive{
+	a := UncompressedArchive{
 		path:           path,
 		r:              pr,
-		w:              &CountingWriter{W: pw, N: 0},
+		w:              &CountingWriter{W: pw},
 		shouldCompress: shouldCompress,
 	}
-
-	go func() {
-		defer pw.Close()
-		err := a.write()
-		if err != nil {
-			pw.CloseWithError(err)
-		}
-	}()
 
 	return &a
 }
 
-func (a *Archive) Read(p []byte) (int, error) {
+func (a *UncompressedArchive) Read(p []byte) (int, error) {
+	// a.startOnce.Do(func() {
+	// 	go func() {
+	// 		defer a.w.W.Close()
+	// 		err := a.write()
+	// 		if err != nil {
+	// 			a.w.W.CloseWithError(err)
+	// 		}
+	// 	}()
+	// })
+	//
+	if a.w.Offset == 0 {
+		go func() {
+			defer a.w.W.Close()
+			err := a.write()
+			if err != nil {
+				a.w.W.CloseWithError(err)
+			}
+		}()
+	}
+
 	return a.r.Read(p)
 }
 
-func (a *Archive) TargetName() string {
+func (a *UncompressedArchive) TargetName() string {
 	return filepath.Base(a.path) + ".zip"
+}
+
+func (a *UncompressedArchive) Size() int64 {
+	if a.summary == nil {
+		err := a.readSummary()
+		if err != nil {
+			return -1
+		}
+	}
+
+	return a.summary.Size
+}
+
+func (a *UncompressedArchive) ETag() string {
+	if a.summary == nil {
+		err := a.readSummary()
+		if err != nil {
+			return ""
+		}
+	}
+
+	return a.summary.ETag
+}
+
+func (a *UncompressedArchive) SeekForward(offset int64) (int64, error) {
+	a.w.SeekOffset += uint64(offset)
+
+	return int64(a.w.SeekOffset), nil
 }
 
 type centralDirectoryEntry struct {
@@ -55,18 +105,18 @@ type centralDirectoryEntry struct {
 	modTime           time.Time
 }
 
-func (a *Archive) writeLE(num any) error {
+func (a *UncompressedArchive) writeLE(num any) error {
 	return binary.Write(a.w, binary.LittleEndian, num)
 }
 
-func (a *Archive) write() error {
+func (a *UncompressedArchive) write() error {
 	entries := make([]centralDirectoryEntry, 0)
 
 	dirLen := len(a.path)
 
 	centralDirOffset := uint64(0)
 	err := filepath.WalkDir(a.path, func(path string, d fs.DirEntry, err error) error {
-		offset := a.w.N
+		offset := a.w.Offset
 		if d.IsDir() {
 			return nil
 		}
@@ -113,7 +163,6 @@ func (a *Archive) write() error {
 		a.writeLE(uint64(0))
 		a.writeLE(uint64(0))
 
-
 		file, err := os.Open(path)
 		if err != nil {
 			return err
@@ -148,7 +197,7 @@ func (a *Archive) write() error {
 		return err
 	}
 
-	centralDirOffset = uint64(a.w.N)
+	centralDirOffset = uint64(a.w.Offset)
 	for _, e := range entries {
 		err := a.writeLE(SigCDHeader)
 		if err != nil {
@@ -192,9 +241,9 @@ func (a *Archive) write() error {
 
 	}
 
-	centralDirSize := uint64(a.w.N - centralDirOffset)
+	centralDirSize := uint64(a.w.Offset - centralDirOffset)
 
-	zip64EOCDOffset := a.w.N
+	zip64EOCDOffset := a.w.Offset
 
 	a.writeLE(SigZip64EOCD)
 	a.writeLE(uint64(44)) // size of zip64 EOCD
@@ -228,5 +277,41 @@ func (a *Archive) write() error {
 	a.writeLE(Max32)
 
 	a.writeLE(uint16(0))
+	return nil
+}
+
+func (a *UncompressedArchive) readSummary() error {
+	// walk dir for size and etag
+	size := int64(98) // common headers
+	etagH := sha256.New()
+	fileCount := 0
+	err := filepath.WalkDir(a.path, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += int64(info.Size())
+
+		name := path[len(a.path)+1:]
+		size +=
+			(int64(len(name)) * 2) +
+				148 // per file headers
+
+		io.WriteString(etagH, name)
+		binary.Write(etagH, binary.LittleEndian, info.ModTime().UnixNano())
+		fileCount++
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	a.summary = &Summary{
+		Size: size,
+		ETag: base64.RawURLEncoding.EncodeToString(etagH.Sum(nil)[:12]),
+	}
 	return nil
 }

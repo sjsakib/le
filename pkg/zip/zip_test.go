@@ -10,7 +10,7 @@ import (
 func TestZip(t *testing.T) {
 	z := New("../../test-files", false)
 
-	buf, err := io.ReadAll(z.r)
+	buf, err := io.ReadAll(z)
 	if err != nil {
 		t.Fatal(err)
 	}

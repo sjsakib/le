@@ -1,6 +1,10 @@
 package server
 
 import (
+	az "archive/zip"
+	"bytes"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,6 +43,123 @@ func TestHandlerDownloadsFile(t *testing.T) {
 
 	if rr.Body.String() != body {
 		t.Fatalf("body = %q, want %q", rr.Body.String(), body)
+	}
+}
+
+func TestHandlerReturnsContentLengthForFileDownload(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "example.txt")
+	body := strings.Repeat("download contents\n", 256)
+
+	if err := os.WriteFile(filePath, []byte(body), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	dir, err := utils.ValidAbsDir(dir)
+	if err != nil {
+		t.Fatalf("resolve test dir: %v", err)
+	}
+
+	eventCh := make(chan ServerEvent, 10)
+	server := httptest.NewServer(newHandler(dir, eventCh))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/example.txt")
+	if err != nil {
+		t.Fatalf("get file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	gotBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	if string(gotBody) != body {
+		t.Fatalf("body = %q, want %q", gotBody, body)
+	}
+
+	expectedContentLength := fmt.Sprintf("%d", len(body))
+	if got := resp.Header.Get("Content-Length"); got != expectedContentLength {
+		t.Fatalf("Content-Length = %q, want %q", got, expectedContentLength)
+	}
+}
+
+func TestHandlerDownloadsZipArchiveWithRange(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatalf("create nested dir: %v", err)
+	}
+	writeTestFile(t, dir, "alpha.txt", 2048, time.Unix(1700000000, 0))
+	writeTestFile(t, dir, "nested/beta.txt", 4096, time.Unix(1700000060, 0))
+
+	dir, err := utils.ValidAbsDir(dir)
+	if err != nil {
+		t.Fatalf("resolve test dir: %v", err)
+	}
+
+	eventCh := make(chan ServerEvent, 20)
+	done := make(chan struct{})
+	go drainEvents(eventCh, done)
+	defer close(done)
+
+	server := httptest.NewServer(newHandler(dir, eventCh))
+	defer server.Close()
+
+	fullResp, err := http.Get(server.URL + "/?archive=true&compressed=false")
+	if err != nil {
+		t.Fatalf("get full archive: %v", err)
+	}
+	defer fullResp.Body.Close()
+
+	fullBody, err := io.ReadAll(fullResp.Body)
+	if err != nil {
+		t.Fatalf("read full archive: %v", err)
+	}
+
+	if fullResp.StatusCode != http.StatusOK {
+		t.Fatalf("full archive status = %d, want %d", fullResp.StatusCode, http.StatusOK)
+	}
+
+	if _, err := az.NewReader(bytes.NewReader(fullBody), int64(len(fullBody))); err != nil {
+		t.Fatalf("full archive is not a valid zip: %v", err)
+	}
+
+	rangeReq, err := http.NewRequest(http.MethodGet, server.URL+"/?archive=true&compressed=false", nil)
+	if err != nil {
+		t.Fatalf("create range request: %v", err)
+	}
+	rangeReq.Header.Set("Range", "bytes=10-99")
+
+	rangeResp, err := http.DefaultClient.Do(rangeReq)
+	if err != nil {
+		t.Fatalf("get range archive: %v", err)
+	}
+	defer rangeResp.Body.Close()
+
+	rangeBody, err := io.ReadAll(rangeResp.Body)
+	if err != nil {
+		t.Fatalf("read range archive: %v", err)
+	}
+
+	if rangeResp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("range archive status = %d, want %d", rangeResp.StatusCode, http.StatusPartialContent)
+	}
+
+	if got, want := rangeResp.Header.Get("Accept-Ranges"), "bytes"; got != want {
+		t.Fatalf("Accept-Ranges = %q, want %q", got, want)
+	}
+
+	if got, want := rangeResp.Header.Get("Content-Range"), fmt.Sprintf("bytes 10-99/%d", len(fullBody)); got != want {
+		t.Fatalf("Content-Range = %q, want %q", got, want)
+	}
+
+	if got, want := rangeResp.Header.Get("Content-Length"), "90"; got != want {
+		t.Fatalf("Content-Length = %q, want %q", got, want)
+	}
+
+	if !bytes.Equal(rangeBody, fullBody[10:100]) {
+		t.Fatalf("range body does not match full archive bytes 10-99")
 	}
 }
 
@@ -203,6 +324,16 @@ func writeTestFile(t *testing.T, dir, name string, size int, modTime time.Time) 
 	}
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatalf("set mod time for %s: %v", name, err)
+	}
+}
+
+func drainEvents(ch <-chan ServerEvent, done <-chan struct{}) {
+	for {
+		select {
+		case <-ch:
+		case <-done:
+			return
+		}
 	}
 }
 

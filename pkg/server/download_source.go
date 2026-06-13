@@ -13,9 +13,9 @@ type downloadSource interface {
 
 type resumableSource interface {
 	downloadSource
-	io.Seeker
+	SeekForward(offset int64) (int64, error)
 	Size() int64
-	Etag() string
+	ETag() string
 }
 
 type fileSource struct {
@@ -27,12 +27,8 @@ func (s *fileSource) Read(p []byte) (n int, err error) {
 	return s.file.Read(p)
 }
 
-func (s *fileSource) Seek(offset int64, whence int) (int64, error) {
-	return s.file.Seek(offset, whence)
-}
-
-func (s *fileSource) Close() error {
-	return s.file.Close()
+func (s *fileSource) SeekForward(offset int64) (int64, error) {
+	return s.file.Seek(offset, io.SeekCurrent)
 }
 
 func (s *fileSource) Size() int64 {

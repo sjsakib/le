@@ -148,7 +148,11 @@ func (rh *reqHelper) serveSource(source downloadSource) {
 		fileSize = resumable.Size()
 		rh.w.Header().Set("Accept-Ranges", "bytes")
 		rh.w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
-		rh.w.Header().Set("ETag", resumable.Etag())
+		rh.w.Header().Set("ETag", resumable.ETag())
+
+		if contentLength != fileSize {
+			rh.w.WriteHeader(http.StatusPartialContent)
+		}
 	}
 
 	fileDisplayPath := utils.ReplaceHome(rh.absPath)
@@ -263,17 +267,21 @@ func (h *reqHelper) handleRange(source downloadSource) (startByte int64, content
 	rng := h.r.Header.Get("Range")
 	contentLength = -1
 	reader = source
+
+	resumableSource, isResumable := source.(resumableSource)
+
+	if isResumable {
+		contentLength = resumableSource.Size()
+	}
+
 	if rng == "" {
 		slog.InfoContext(h.ctx, "OK", "path", h.r.URL.Path, "size", contentLength, logger.StatusCodeKey, http.StatusOK)
 		return startByte, contentLength, reader, nil
 	}
 
-	resumableSource, ok := source.(resumableSource)
-	if !ok {
+	if !isResumable {
 		return 0, 0, nil, ErrInvalidRangeHeader
 	}
-
-	contentLength = resumableSource.Size()
 
 	hStartByte, endByte, parseErr := utils.ParseRangeHeader(rng, contentLength)
 	if parseErr != nil {
@@ -281,7 +289,7 @@ func (h *reqHelper) handleRange(source downloadSource) (startByte int64, content
 	}
 	startByte = hStartByte
 
-	if _, err := resumableSource.Seek(startByte, io.SeekStart); err != nil {
+	if _, err := resumableSource.SeekForward(startByte); err != nil {
 		return 0, 0, nil, err
 	}
 
@@ -289,7 +297,6 @@ func (h *reqHelper) handleRange(source downloadSource) (startByte int64, content
 	reader = io.LimitReader(reader, contentLength)
 
 	h.w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", startByte, endByte, resumableSource.Size()))
-	h.w.WriteHeader(http.StatusPartialContent)
 
 	slog.InfoContext(h.ctx, "PARTIAL", "path", h.r.URL.Path, "start", startByte, "end", endByte, "total", contentLength, logger.StatusCodeKey, http.StatusPartialContent)
 
