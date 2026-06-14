@@ -14,13 +14,15 @@ import (
 
 func main() {
 
-	slog.SetDefault(slog.New(logger.NewHandler()))
-
 	config, err := cfg.Load()
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	logHandler := logger.NewHandler(config.LogPath)
+	slog.SetDefault(slog.New(logHandler))
+	defer logHandler.Close()
 
 	slog.Info("Loaded", "config", config)
 

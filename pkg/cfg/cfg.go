@@ -34,10 +34,13 @@ func (m *StaticSiteMode) Type() string {
 }
 
 type Config struct {
-	Dir            string
-	Port           int
+	Dir  string
+	Port int
+
 	StaticSiteMode StaticSiteMode
 	IsSPA          bool
+
+	LogPath string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +57,8 @@ func Load() (*Config, error) {
 	var staticSiteMode StaticSiteMode = "auto"
 	f.Var(&staticSiteMode, "static-site", "Static site mode: auto|false")
 
+	f.StringP("log-path", "l", "", "If a path is provided, logs will be written to that directory")
+
 	err := viper.BindPFlags(f)
 
 	flag.Parse()
@@ -67,6 +72,7 @@ func Load() (*Config, error) {
 		Port:           viper.GetInt("port"),
 		StaticSiteMode: StaticSiteMode(viper.GetString("static-site")),
 		IsSPA:          viper.GetBool("spa"),
+		LogPath:        viper.GetString("log-path"),
 	}
 
 	return c, nil

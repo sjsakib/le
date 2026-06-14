@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"go.sakib.dev/le/pkg/utils"
 )
@@ -14,10 +15,19 @@ const (
 
 type Handler struct {
 	slog.Handler
+
+	isEnabled bool
+	file      *os.File
 }
 
-func NewHandler() *Handler {
-	f, err := os.OpenFile(".le.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+func NewHandler(path string) *Handler {
+	if path == "" {
+		return &Handler{
+			isEnabled: false,
+		}
+	}
+
+	f, err := os.OpenFile(filepath.Join(path, "le.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		panic("failed to open log file: " + err.Error())
 	}
@@ -26,10 +36,14 @@ func NewHandler() *Handler {
 		Handler: slog.NewTextHandler(f, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}),
+		isEnabled: path != "",
 	}
 }
 
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
+	if !h.isEnabled {
+		return nil
+	}
 	reqId, ok := ctx.Value(utils.RequestIDKey).(string)
 
 	if !ok {
@@ -39,4 +53,12 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	r.AddAttrs(slog.String(string(utils.RequestIDKey), reqId))
 
 	return h.Handler.Handle(ctx, r)
+}
+
+
+func (h *Handler) Close() error {
+	if !h.isEnabled {
+		return nil
+	}
+	return h.file.Close()
 }
