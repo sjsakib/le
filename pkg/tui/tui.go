@@ -2,6 +2,7 @@ package tui
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -170,7 +171,7 @@ func (m model) View() string {
 	return str.String()
 }
 
-func Start(srvr *server.Server) error {
+func Start(ctx context.Context, srvr *server.Server, ) error {
 	model := newModel(srvr)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
@@ -189,8 +190,13 @@ func Start(srvr *server.Server) error {
 
 	defer func() {
 		os.Stdout = old // Restore original stdout
-		p.Kill()
+		p.Send(tea.Quit())
 		close(ch)
+	}()
+
+	go func() {
+		<-ctx.Done()
+		p.Send(tea.Quit())
 	}()
 
 	if _, err := p.Run(); err != nil {

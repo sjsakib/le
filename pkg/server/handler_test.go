@@ -4,7 +4,6 @@ import (
 	az "archive/zip"
 	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sakib.dev/le/pkg/cfg"
 	"go.sakib.dev/le/pkg/utils"
 )
 
@@ -31,7 +31,7 @@ func TestHandlerDownloadsFile(t *testing.T) {
 	}
 
 	eventCh := make(chan ServerEvent, 10)
-	handler := newHandler(dir, eventCh)
+	handler := newTestHandler(t, dir, eventCh)
 
 	req := httptest.NewRequest(http.MethodGet, "/example.txt", nil)
 	rr := httptest.NewRecorder()
@@ -61,26 +61,22 @@ func TestHandlerReturnsContentLengthForFileDownload(t *testing.T) {
 	}
 
 	eventCh := make(chan ServerEvent, 10)
-	server := httptest.NewServer(newHandler(dir, eventCh))
-	defer server.Close()
+	handler := newTestHandler(t, dir, eventCh)
 
-	resp, err := http.Get(server.URL + "/example.txt")
-	if err != nil {
-		t.Fatalf("get file: %v", err)
-	}
-	defer resp.Body.Close()
+	req := httptest.NewRequest(http.MethodGet, "/example.txt", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
 
-	gotBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	if string(gotBody) != body {
-		t.Fatalf("body = %q, want %q", gotBody, body)
+	if rr.Body.String() != body {
+		t.Fatalf("body = %q, want %q", rr.Body.String(), body)
 	}
 
 	expectedContentLength := fmt.Sprintf("%d", len(body))
-	if got := resp.Header.Get("Content-Length"); got != expectedContentLength {
+	if got := rr.Header().Get("Content-Length"); got != expectedContentLength {
 		t.Fatalf("Content-Length = %q, want %q", got, expectedContentLength)
 	}
 }
@@ -100,7 +96,7 @@ func TestHandlerHandlesHeadRequestForFileDownload(t *testing.T) {
 	}
 
 	eventCh := make(chan ServerEvent, 10)
-	handler := newHandler(dir, eventCh)
+	handler := newTestHandler(t, dir, eventCh)
 
 	req := httptest.NewRequest(http.MethodHead, "/example.txt", nil)
 	rr := httptest.NewRecorder()
@@ -141,58 +137,40 @@ func TestHandlerDownloadsZipArchiveWithRange(t *testing.T) {
 	go drainEvents(eventCh, done)
 	defer close(done)
 
-	server := httptest.NewServer(newHandler(dir, eventCh))
-	defer server.Close()
+	handler := newTestHandler(t, dir, eventCh)
 
-	fullResp, err := http.Get(server.URL + "/?archive=true&compressed=false")
-	if err != nil {
-		t.Fatalf("get full archive: %v", err)
-	}
-	defer fullResp.Body.Close()
+	fullReq := httptest.NewRequest(http.MethodGet, "/?archive=true&compressed=false", nil)
+	fullRR := httptest.NewRecorder()
+	handler.ServeHTTP(fullRR, fullReq)
+	fullBody := fullRR.Body.Bytes()
 
-	fullBody, err := io.ReadAll(fullResp.Body)
-	if err != nil {
-		t.Fatalf("read full archive: %v", err)
-	}
-
-	if fullResp.StatusCode != http.StatusOK {
-		t.Fatalf("full archive status = %d, want %d", fullResp.StatusCode, http.StatusOK)
+	if fullRR.Code != http.StatusOK {
+		t.Fatalf("full archive status = %d, want %d", fullRR.Code, http.StatusOK)
 	}
 
 	if _, err := az.NewReader(bytes.NewReader(fullBody), int64(len(fullBody))); err != nil {
 		t.Fatalf("full archive is not a valid zip: %v", err)
 	}
 
-	rangeReq, err := http.NewRequest(http.MethodGet, server.URL+"/?archive=true&compressed=false", nil)
-	if err != nil {
-		t.Fatalf("create range request: %v", err)
-	}
+	rangeReq := httptest.NewRequest(http.MethodGet, "/?archive=true&compressed=false", nil)
 	rangeReq.Header.Set("Range", "bytes=10-99")
+	rangeRR := httptest.NewRecorder()
+	handler.ServeHTTP(rangeRR, rangeReq)
+	rangeBody := rangeRR.Body.Bytes()
 
-	rangeResp, err := http.DefaultClient.Do(rangeReq)
-	if err != nil {
-		t.Fatalf("get range archive: %v", err)
-	}
-	defer rangeResp.Body.Close()
-
-	rangeBody, err := io.ReadAll(rangeResp.Body)
-	if err != nil {
-		t.Fatalf("read range archive: %v", err)
+	if rangeRR.Code != http.StatusPartialContent {
+		t.Fatalf("range archive status = %d, want %d", rangeRR.Code, http.StatusPartialContent)
 	}
 
-	if rangeResp.StatusCode != http.StatusPartialContent {
-		t.Fatalf("range archive status = %d, want %d", rangeResp.StatusCode, http.StatusPartialContent)
-	}
-
-	if got, want := rangeResp.Header.Get("Accept-Ranges"), "bytes"; got != want {
+	if got, want := rangeRR.Header().Get("Accept-Ranges"), "bytes"; got != want {
 		t.Fatalf("Accept-Ranges = %q, want %q", got, want)
 	}
 
-	if got, want := rangeResp.Header.Get("Content-Range"), fmt.Sprintf("bytes 10-99/%d", len(fullBody)); got != want {
+	if got, want := rangeRR.Header().Get("Content-Range"), fmt.Sprintf("bytes 10-99/%d", len(fullBody)); got != want {
 		t.Fatalf("Content-Range = %q, want %q", got, want)
 	}
 
-	if got, want := rangeResp.Header.Get("Content-Length"), "90"; got != want {
+	if got, want := rangeRR.Header().Get("Content-Length"), "90"; got != want {
 		t.Fatalf("Content-Length = %q, want %q", got, want)
 	}
 
@@ -351,6 +329,20 @@ func renderDirectory(t *testing.T, dir string, rawQuery string) string {
 	}
 
 	return rr.Body.String()
+}
+
+func newTestHandler(t *testing.T, dir string, eventCh chan<- ServerEvent) http.Handler {
+	t.Helper()
+
+	handler, err := newHandler(&cfg.Config{
+		Dir:            dir,
+		StaticSiteMode: cfg.StaticSiteModeOff,
+	}, eventCh)
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+
+	return handler
 }
 
 func writeTestFile(t *testing.T, dir, name string, size int, modTime time.Time) {

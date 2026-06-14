@@ -51,7 +51,6 @@ func GetClientHostname(r *http.Request) (string, error) {
 
 	names, err := net.LookupAddr(ip)
 	if err != nil || len(names) == 0 {
-		slog.Debug("Failed to get client hostname", "error", err)
 		return ip, nil // fallback to IP if no hostname found
 	}
 

@@ -9,13 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"go.sakib.dev/le/logger"
+	"go.sakib.dev/le/pkg/cfg"
 	"go.sakib.dev/le/pkg/utils"
 )
 
 type Server struct {
-	Dir  string
-	Port int
+	config *cfg.Config
 
 	server *http.Server
 
@@ -23,19 +22,17 @@ type Server struct {
 	subscribers []chan ServerEvent
 }
 
-func NewServer(dir string, port int) (*Server, error) {
-	dir, err := utils.ValidAbsDir(dir)
+func NewServer(config *cfg.Config) (*Server, error) {
+	dir, err := utils.ValidAbsDir(config.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("invalid directory: %w", err)
 	}
 
-	slog.SetDefault(slog.New(logger.NewHandler()))
-
 	slog.Info("Got directory:", "dir", dir)
 
 	return &Server{
-		Dir:  dir,
-		Port: port, subLock: sync.RWMutex{},
+		config:  config,
+		subLock: sync.RWMutex{},
 	}, nil
 }
 
@@ -59,7 +56,10 @@ func (s *Server) Unsubscribe(ch chan ServerEvent) {
 func (s *Server) Start() error {
 
 	eventCh := make(chan ServerEvent, 100)
-	handler := newHandler(s.Dir, eventCh)
+	handler, err := newHandler(s.config, eventCh)
+	if err != nil {
+		return err
+	}
 
 	go func() {
 		for event := range eventCh {
@@ -69,9 +69,9 @@ func (s *Server) Start() error {
 
 	s.PrintUrl()
 
-	addr := fmt.Sprintf(":%d", s.Port)
+	addr := fmt.Sprintf(":%d", s.config.Port)
 	s.server = &http.Server{Addr: addr, Handler: handler}
-	err := s.server.ListenAndServe()
+	err = s.server.ListenAndServe()
 
 	if err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("error starting server: %w", err)
@@ -97,11 +97,11 @@ func (s *Server) PrintUrl() {
 		localIP = "localhost"
 	}
 
-	url := fmt.Sprintf("http://%s:%d", localIP, s.Port)
-	slog.Info("Serving files from", "directory", s.Dir)
+	url := fmt.Sprintf("http://%s:%d", localIP, s.config.Port)
+	slog.Info("Serving files from", "directory", s.config.Dir)
 	slog.Info("File server is running on", "url", url)
 
-	s.publish(&EventAddrUpdated{Addr: url, Dir: s.Dir, Time: time.Now()})
+	s.publish(&EventAddrUpdated{Addr: url, Dir: s.config.Dir, Time: time.Now()})
 
 }
 

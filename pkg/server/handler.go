@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"go.sakib.dev/le/pkg/cfg"
 	"go.sakib.dev/le/pkg/utils"
 	"go.sakib.dev/le/pkg/zip"
 )
@@ -23,20 +24,21 @@ type handler struct {
 	isStaticSite  bool
 }
 
-func newHandler(dir string, ch chan<- ServerEvent) http.Handler {
+func newHandler(c *cfg.Config, ch chan<- ServerEvent) (http.Handler, error) {
 	isStaticSite := false
 
-	if _, err := os.Stat(path.Join(dir, "index.html")); err == nil {
+	if _, err := os.Stat(path.Join(c.Dir, "index.html")); err == nil && c.StaticSiteMode == cfg.StaticSiteModeAuto {
 		slog.Info("index.html detected, starting static site mode")
 		isStaticSite = true
 	}
 
-	return &handler{
-		defaultServer: http.FileServer(http.Dir(dir)),
-		root:          http.Dir(dir),
+	h := &handler{
+		defaultServer: http.FileServer(http.Dir(c.Dir)),
+		root:          http.Dir(c.Dir),
 		ch:            ch,
 		isStaticSite:  isStaticSite,
 	}
+	return h, nil
 }
 
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	clientHost, err := utils.GetClientHostname(r)
 	if err != nil {
-		slog.Warn("Failed to get client hostname", "error", err)
 		clientHost = "unknown"
 	}
 	reqHelper.clientHost = clientHost
