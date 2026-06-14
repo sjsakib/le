@@ -1,21 +1,22 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"sync"
 
+	"go.sakib.dev/le/pkg/config"
 	"go.sakib.dev/le/pkg/server"
 	"go.sakib.dev/le/pkg/tui"
 )
 
 func main() {
-	dir := flag.String("dir", ".", "Directory to serve files from")
-	port := flag.Int("port", 8080, "Port to run the file server on")
 
-	flag.Parse()
+	config, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
-	srvr, err := server.NewServer(*dir, *port)
+	srvr, err := server.NewServer(config.Dir, config.Port)
 
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
