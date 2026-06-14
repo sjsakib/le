@@ -3,10 +3,10 @@ package server
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -20,20 +20,36 @@ type handler struct {
 	defaultServer http.Handler
 	root          http.Dir
 	ch            chan<- ServerEvent
+	isStaticSite  bool
 }
 
 func newHandler(dir string, ch chan<- ServerEvent) http.Handler {
+	isStaticSite := false
+
+	if _, err := os.Stat(path.Join(dir, "index.html")); err == nil {
+		slog.Info("index.html detected, starting static site mode")
+		isStaticSite = true
+	}
+
 	return &handler{
 		defaultServer: http.FileServer(http.Dir(dir)),
 		root:          http.Dir(dir),
 		ch:            ch,
+		isStaticSite:  isStaticSite,
 	}
 }
 
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
 	reqHelper := newReqHelper(w, r, h.ch)
 
 	reqHelper.attachReqId()
+
+	if h.isStaticSite {
+		slog.InfoContext(reqHelper.ctx, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+		h.defaultServer.ServeHTTP(w, r)
+		return
+	}
 
 	clientIP, err := utils.GetClientIP(r)
 	if err != nil {
@@ -95,7 +111,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		acceptHeader := r.Header.Get("Accept")
 		isBrowser := strings.Contains(acceptHeader, "text/html")
 
-
 		if isBrowser {
 			slog.InfoContext(reqHelper.ctx, "OK - Serving directory with pretty UI", "path", r.URL.Path)
 			h.serveDirectory(w, r, absPath)
@@ -123,89 +138,4 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqHelper.serveSource(source)
-}
-
-func (rh *reqHelper) serveSource(source downloadSource) {
-	var transferStart = time.Now()
-	startByte, contentLength, reader, err := rh.handleRange(source)
-	if err != nil {
-		if errors.Is(err, ErrInvalidRangeHeader) {
-			rh.error("Invalid Range", err, http.StatusRequestedRangeNotSatisfiable)
-			return
-		}
-		rh.internalServerError(err)
-		return
-
-	}
-
-	rh.w.Header().Set("Content-Type", "application/octet-stream")
-	rh.w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", source.TargetName()))
-
-	resumable, isResumable := source.(resumableSource)
-
-	var fileSize int64 = -1
-	if isResumable {
-		fileSize = resumable.Size()
-		rh.w.Header().Set("Accept-Ranges", "bytes")
-		rh.w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
-		rh.w.Header().Set("ETag", resumable.ETag())
-
-		if contentLength != fileSize {
-			rh.w.WriteHeader(http.StatusPartialContent)
-		}
-	}
-
-	fileDisplayPath := utils.ReplaceHome(rh.absPath)
-	var totalSent int64 = 0
-	var totalMBSent float64
-	buf := make([]byte, 1024*1024) // 1MB buffer
-	var lastReportedSent int64 = 0
-	var lastReportedTime = time.Now()
-
-	if rh.r.Method == http.MethodHead {
-		rh.w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	rh.publishDownloadStart(fileDisplayPath, fileSize, startByte, startByte+contentLength-1)
-	slog.Info("Starting download", "file", fileDisplayPath, "totalSize", fileSize, "rangeStart", startByte, "contentLength", contentLength, "clientIP", rh.clientIP, "clientHost", rh.clientHost)
-	for {
-		n, err := reader.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				slog.ErrorContext(rh.ctx, "Error reading file", "error", err, "file", fileDisplayPath)
-			}
-			break
-		}
-
-		if n > 0 {
-			_, err := rh.w.Write(buf[:n])
-			if err != nil {
-				slog.ErrorContext(rh.ctx, "Error writing response", "error", err, "file", fileDisplayPath)
-				break
-			}
-			totalSent += int64(n)
-
-			rh.publishDownloadProgress(int64(n))
-
-			if time.Since(lastReportedTime) > downloadProgressLogInterval {
-				totalMBSent = float64(totalSent) / 1024 / 1024
-
-				mbps := float64(totalSent-lastReportedSent) / 1024 / 1024 / time.Since(lastReportedTime).Seconds()
-
-				progress := float64(totalSent) / float64(fileSize) * 100
-
-				msg := fmt.Sprintf("%7.2f / %7.2f MB sent | %2.2f%% | %5.2f MB/s",
-					totalMBSent, float64(contentLength)/1024/1024, progress, mbps)
-
-				slog.InfoContext(rh.ctx, msg, "file", fileDisplayPath)
-
-				lastReportedSent = totalSent
-				lastReportedTime = time.Now()
-			}
-
-		}
-	}
-
-	slog.InfoContext(rh.ctx, "TRANSFER COMPLETE", "file", fileDisplayPath, "totalSent_mb", totalMBSent, "duration", time.Since(transferStart))
 }
