@@ -24,7 +24,13 @@ go run go.sakib.dev/le@latest
 
 ## Install
 
-Install the `le` binary permanently with:
+Install with Homebrew:
+
+```sh
+brew install sjsakib/le/le
+```
+
+Or with Go:
 
 ```sh
 go install go.sakib.dev/le@latest
