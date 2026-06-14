@@ -85,6 +85,44 @@ func TestHandlerReturnsContentLengthForFileDownload(t *testing.T) {
 	}
 }
 
+func TestHandlerHandlesHeadRequestForFileDownload(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "example.txt")
+	const body = "download contents"
+
+	if err := os.WriteFile(filePath, []byte(body), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	dir, err := utils.ValidAbsDir(dir)
+	if err != nil {
+		t.Fatalf("resolve test dir: %v", err)
+	}
+
+	eventCh := make(chan ServerEvent, 10)
+	handler := newHandler(dir, eventCh)
+
+	req := httptest.NewRequest(http.MethodHead, "/example.txt", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	if got := rr.Body.String(); got != "" {
+		t.Fatalf("body = %q, want empty body", got)
+	}
+
+	if got, want := rr.Header().Get("Content-Length"), fmt.Sprintf("%d", len(body)); got != want {
+		t.Fatalf("Content-Length = %q, want %q", got, want)
+	}
+
+	if got, want := rr.Header().Get("Accept-Ranges"), "bytes"; got != want {
+		t.Fatalf("Accept-Ranges = %q, want %q", got, want)
+	}
+}
+
 func TestHandlerDownloadsZipArchiveWithRange(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0755); err != nil {

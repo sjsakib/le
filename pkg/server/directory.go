@@ -235,6 +235,12 @@ func formatTime(t time.Time) string {
 }
 
 func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		http.Error(w, "Error reading directory", http.StatusInternalServerError)
@@ -362,12 +368,7 @@ func (h *handler) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath
 		SizeSortURL: directorySortURL(searchQuery, sortBy, sortOrder, directorySortSize),
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := dirTemplate.Execute(w, data); err != nil {
 		http.Error(w, "Error rendering template", http.StatusInternalServerError)
 	}
-}
-
-func (h *handler) serveDirectoryAsArchive(w http.ResponseWriter, r *http.Request, absPath string) {
-
 }
