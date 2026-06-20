@@ -30,6 +30,8 @@ func NewServer(config *cfg.Config) (*Server, error) {
 
 	slog.Info("Got directory:", "dir", dir)
 
+	config.Dir = dir
+
 	return &Server{
 		config:  config,
 		subLock: sync.RWMutex{},

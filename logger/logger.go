@@ -24,7 +24,7 @@ type Handler struct {
 func NewHandler(path string) *Handler {
 	var w io.Writer = io.Discard
 	if path != "" {
-		path = utils.ReplaceHome(path)
+		path = utils.ExpandHome(path)
 		if err := os.MkdirAll(path, 0755); err != nil {
 			panic("failed to create log directory: " + err.Error())
 		}

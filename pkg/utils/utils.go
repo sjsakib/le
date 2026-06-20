@@ -171,6 +171,16 @@ func ReplaceHome(dir string) string {
 	return dir
 }
 
+func ExpandHome(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home := os.Getenv("HOME")
+		if home != "" {
+			path = strings.ReplaceAll(path, "~", home)
+		}
+	}
+	return path
+}
+
 func HumanizeSize(size int64) string {
 	if size == 0 {
 		return ""

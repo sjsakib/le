@@ -116,6 +116,11 @@ func (m model) View() string {
 
 		blockStr := strings.Builder{}
 		for i, c := range d.Chunks {
+			if d.TotalSize < 0 {
+				totalSent += c.Sent
+				totalRequested = -1
+				break
+			}
 			if i == 0 {
 				start = c.Start
 			}
@@ -157,13 +162,17 @@ func (m model) View() string {
 
 		totalProgress := float64(totalSent) / float64(totalRequested)
 
-		fmt.Fprintf(&str, "%5.2f%% %s  %s / %s",
-			totalProgress*100,
-			blockStr.String(),
-			utils.HumanizeSize(totalSent),
-			utils.HumanizeSize(totalRequested))
-
-		str.WriteString("\n\n")
+		if totalRequested < 0 {
+			fmt.Fprintf(&str, "%s / ?\n\n",
+				utils.HumanizeSize(totalSent),
+			)
+		} else {
+			fmt.Fprintf(&str, "%5.2f%% %s  %s / %s\n\n",
+				totalProgress*100,
+				blockStr.String(),
+				utils.HumanizeSize(totalSent),
+				utils.HumanizeSize(totalRequested))
+		}
 	}
 
 	str.WriteString("\nPress Ctrl+C or 'q' to quit.\n\n")
@@ -171,7 +180,7 @@ func (m model) View() string {
 	return str.String()
 }
 
-func Start(ctx context.Context, srvr *server.Server, ) error {
+func Start(ctx context.Context, srvr *server.Server) error {
 	model := newModel(srvr)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
