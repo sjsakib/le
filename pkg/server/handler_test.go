@@ -311,6 +311,19 @@ func TestServeDirectoryShowsSmallFileSizeInBytes(t *testing.T) {
 	}
 }
 
+func TestServeDirectoryIncludesFavicon(t *testing.T) {
+	dir := t.TempDir()
+
+	body := renderDirectory(t, dir, "")
+
+	if !strings.Contains(body, `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,`) {
+		t.Fatalf("expected directory page to include svg favicon link, body:\n%s", body)
+	}
+	if !strings.Contains(body, `%23f39c12`) {
+		t.Fatalf("expected directory favicon to include folder color, body:\n%s", body)
+	}
+}
+
 func renderDirectory(t *testing.T, dir string, rawQuery string) string {
 	t.Helper()
 

@@ -18,15 +18,15 @@ A file server with primary purpose of serving and downloading files in the local
 - [x] Support basic dowloading directory as archive
 - [x] Archive without loading all files into memory
 - [x] Support resumable archive
-- [ ] Support SPA via flag
-- [x] Support static sites via `index.html`
-- [ ] Support basic auth
+- [x] Configrable log/log file
 - [x] Support HEAD requests
+- [x] Support static sites via `index.html`
+- [ ] Support SPA via flag
+- [ ] Support basic auth
 - [ ] Support If-Range header
 - [ ] Support non resumable compressed archive
 - [ ] Fix tui for unknown file sizes
 - [ ] Handle symlinks when archiving files
-- [ ] Configrable log/log file
 - [ ] Support tar
 - [ ] Support encrypted archives
 - [ ] Allow upload via flag
