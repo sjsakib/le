@@ -1,0 +1,8 @@
+
+
+time=2026-06-20T16:04:35.813+06:00 level=INFO msg=Loaded config="&{Dir:/Users/sakib/cs Port:8080 StaticSiteMode:auto IsSPA:false LogPath:~/.le}"
+time=2026-06-20T16:04:35.813+06:00 level=INFO msg="Got directory:" dir=/Users/sakib/cs
+time=2026-06-20T16:04:35.814+06:00 level=INFO msg="Serving files from" directory=/Users/sakib/cs
+time=2026-06-20T16:04:35.814+06:00 level=INFO msg="File server is running on" url=http://192.168.0.147:8080
+time=2026-06-20T16:04:38.158+06:00 level=INFO msg="Closing server"
+time=2026-06-20T16:04:38.159+06:00 level=INFO msg="Exit code" code=0
