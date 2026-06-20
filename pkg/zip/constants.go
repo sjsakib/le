@@ -12,16 +12,17 @@ const (
 	ZipVer45 = uint16(45)
 
 	Zip64ExtraFieldID   = uint16(0x00_01)
-	ExtraFieldSize = uint16(24)
+	ExtraFieldSize      = uint16(24)
 	Zip64ExtraFieldSize = uint16(28)
 
-	LocalExtraFieldSize = uint16(20)
+	LocalExtraFieldSize      = uint16(20)
 	LocalZip64ExtraFieldSize = uint16(16)
 
 	FlagUTF8Filename   = uint16(1 << 11)
 	FlagInfoComesLater = uint16(1 << 3)
 
-	MethodStore = uint16(0)
+	MethodStore   = uint16(0)
+	MethodDeflate = uint16(8)
 
 	Max32 = uint32(0xFFFFFFFF)
 	Max16 = uint16(0xFFFF)

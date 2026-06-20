@@ -1,6 +1,7 @@
 package zip
 
 import (
+	"compress/flate"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -19,29 +20,47 @@ type Summary struct {
 	ETag string
 }
 
-type UncompressedArchive struct {
+type Archive interface {
+	Read(p []byte) (int, error)
+	TargetName() string
+}
+
+type archive struct {
 	path           string
 	r              io.Reader
 	w              *CountingWriter
-	startOnce      sync.Once
+	startOnce      *sync.Once
 	summary        *Summary
 	shouldCompress bool
 }
 
-func New(path string, shouldCompress bool) *UncompressedArchive {
+type UncompressedArchive struct {
+	archive
+}
+
+type CompressedArchive struct {
+	archive
+}
+
+func New(path string, shouldCompress bool) Archive {
 	pr, pw := io.Pipe()
 
-	a := UncompressedArchive{
+	a := archive{
 		path:           path,
 		r:              pr,
 		w:              &CountingWriter{W: pw},
+		startOnce:      &sync.Once{},
 		shouldCompress: shouldCompress,
 	}
 
-	return &a
+	if shouldCompress {
+		return &CompressedArchive{a}
+	} else {
+		return &UncompressedArchive{a}
+	}
 }
 
-func (a *UncompressedArchive) Read(p []byte) (int, error) {
+func (a *archive) Read(p []byte) (int, error) {
 	a.startOnce.Do(func() {
 		go func() {
 			defer a.w.W.Close()
@@ -55,7 +74,7 @@ func (a *UncompressedArchive) Read(p []byte) (int, error) {
 	return a.r.Read(p)
 }
 
-func (a *UncompressedArchive) TargetName() string {
+func (a *archive) TargetName() string {
 	return filepath.Base(a.path) + ".zip"
 }
 
@@ -96,11 +115,11 @@ type centralDirectoryEntry struct {
 	modTime           time.Time
 }
 
-func (a *UncompressedArchive) writeLE(num any) error {
+func (a *archive) writeLE(num any) error {
 	return binary.Write(a.w, binary.LittleEndian, num)
 }
 
-func (a *UncompressedArchive) write() error {
+func (a *archive) write() error {
 	entries := make([]centralDirectoryEntry, 0)
 
 	dirLen := len(a.path)
@@ -117,10 +136,13 @@ func (a *UncompressedArchive) write() error {
 		a.writeLE(ZipVer45)
 
 		// flag bit set to 3
-		a.writeLE(FlagInfoComesLater)
+		a.writeLE(FlagInfoComesLater | FlagUTF8Filename)
 
-		// compression method set to 0 (store)
-		a.writeLE(MethodStore)
+		if a.shouldCompress {
+			a.writeLE(MethodDeflate)
+		} else {
+			a.writeLE(MethodStore)
+		}
 
 		info, err := d.Info()
 		if err != nil {
@@ -161,21 +183,40 @@ func (a *UncompressedArchive) write() error {
 		defer file.Close()
 
 		crc := crc32.NewIEEE()
-		fileSize, err := io.Copy(io.MultiWriter(crc, a.w), file)
+
+		var w io.Writer = a.w
+
+		if a.shouldCompress {
+			df, err := flate.NewWriter(a.w, flate.HuffmanOnly)
+			if err != nil {
+				return err
+			}
+			w = df
+		}
+
+		fileDataOffset := a.w.Offset
+
+		fileSize, err := io.Copy(io.MultiWriter(crc, w), file)
 		if err != nil {
 			return err
 		}
+
+		if df, ok := w.(*flate.Writer); ok {
+			df.Close()
+		}
+
+		compressedSize := uint64(a.w.Offset - fileDataOffset)
 
 		a.writeLE(SigFileDescriptor)
 
 		a.writeLE(crc.Sum32())
 		a.writeLE(uint64(fileSize))
-		a.writeLE(uint64(fileSize))
+		a.writeLE(compressedSize)
 
 		entries = append(entries, centralDirectoryEntry{
 			name:              name,
 			crc32:             crc.Sum32(),
-			compressedSize:    uint64(fileSize),
+			compressedSize:    compressedSize,
 			uncompressedSize:  uint64(fileSize),
 			localHeaderOffset: offset,
 			modTime:           info.ModTime(),
@@ -198,9 +239,13 @@ func (a *UncompressedArchive) write() error {
 		a.writeLE(ZipVer45) // made by
 		a.writeLE(ZipVer45) // required
 
-		a.writeLE(FlagInfoComesLater) // match local
+		a.writeLE(FlagInfoComesLater | FlagUTF8Filename) // match local
 
-		a.writeLE(MethodStore)
+		if a.shouldCompress {
+			a.writeLE(MethodDeflate)
+		} else {
+			a.writeLE(MethodStore)
+		}
 
 		dosTime, dosDate := dosDateTime(e.modTime)
 		a.writeLE(dosTime)
@@ -226,8 +271,9 @@ func (a *UncompressedArchive) write() error {
 		a.writeLE(Zip64ExtraFieldID)
 		a.writeLE(ExtraFieldSize)
 
-		a.writeLE(e.compressedSize)
 		a.writeLE(e.uncompressedSize)
+		a.writeLE(e.compressedSize)
+
 		a.writeLE(e.localHeaderOffset)
 
 	}
@@ -271,7 +317,7 @@ func (a *UncompressedArchive) write() error {
 	return nil
 }
 
-func (a *UncompressedArchive) readSummary() error {
+func (a *archive) readSummary() error {
 	// walk dir for size and etag
 	size := int64(98) // common headers
 	etagH := sha256.New()
