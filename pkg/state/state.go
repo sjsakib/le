@@ -111,17 +111,19 @@ func (s *ServerState) HandleDownloadStart(event *server.EventDownloadStart) {
 
 		download, exists := s.Downloads[downloadID]
 
-		if !exists {
-			download = &Download{
-				ID:              downloadID,
-				ClientID:        event.Client.GetID(),
-				FileDisplayPath: event.FileDisplayPath,
-				TotalSize:       event.TotalSize,
-				StartedAt:       event.Time,
-				Chunks:          make([]*DownloadChunk, 0),
-			}
-			s.Downloads[download.ID] = download
+		if exists {
+			delete(s.Downloads, downloadID)
 		}
+
+		download = &Download{
+			ID:              downloadID,
+			ClientID:        event.Client.GetID(),
+			FileDisplayPath: event.FileDisplayPath,
+			TotalSize:       event.TotalSize,
+			StartedAt:       event.Time,
+			Chunks:          make([]*DownloadChunk, 0),
+		}
+		s.Downloads[download.ID] = download
 
 		chunk := &DownloadChunk{
 			ConnID:    event.ConnID,

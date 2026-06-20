@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"go.sakib.dev/le/logger"
@@ -151,7 +152,7 @@ func (rh *reqHelper) serveSource(source downloadSource) {
 		}
 	}
 
-	fileDisplayPath := utils.ReplaceHome(rh.absPath)
+	fileDisplayPath := utils.ReplaceHome(filepath.Join(filepath.Dir(rh.absPath), source.TargetName()))
 	var totalSent int64 = 0
 	var totalMBSent float64
 	buf := make([]byte, 1024*1024) // 1MB buffer
